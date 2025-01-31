@@ -1,0 +1,2 @@
+2025-01-31 03:39:28,557 - iTransformer_stock_prediction - INFO - Epoch: 1, Train Loss: 0.526857, Val Loss: 0.611452, Test Loss: 0.611452, Learning Rate: 0.000100
+2025-01-31 03:39:30,465 - iTransformer_stock_prediction - INFO - Prediction Metrics - MAE: 0.280407, MSE: 0.545386, RMSE: 0.738503

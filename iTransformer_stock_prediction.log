@@ -1,0 +1,49 @@
+2025-01-31 03:44:15,337 - iTransformer_stock_prediction - INFO - Epoch: 1, Train Loss: 0.654819, Val Loss: 0.595526, Test Loss: 0.595526, Learning Rate: 0.000100
+2025-01-31 03:44:17,189 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.267511, MSE: 0.533382, RMSE: 0.730330
+2025-01-31 03:47:11,344 - iTransformer_stock_prediction - INFO - Epoch: 1, Train Loss: 0.658092, Val Loss: 0.597181, Test Loss: 0.597181, Learning Rate: 0.000100
+2025-01-31 03:47:13,305 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.271834, MSE: 0.534310, RMSE: 0.730965
+2025-01-31 03:58:30,803 - iTransformer_stock_prediction - INFO - Epoch: 1, Train Loss: 0.786745, Val Loss: 1.037536, Test Loss: 1.037536, Learning Rate: 0.000100
+2025-01-31 03:58:42,332 - iTransformer_stock_prediction - INFO - Epoch: 2, Train Loss: 0.770599, Val Loss: 1.025487, Test Loss: 1.025487, Learning Rate: 0.000100
+2025-01-31 03:58:53,753 - iTransformer_stock_prediction - INFO - Epoch: 3, Train Loss: 0.764353, Val Loss: 1.011399, Test Loss: 1.011399, Learning Rate: 0.000100
+2025-01-31 03:59:05,215 - iTransformer_stock_prediction - INFO - Epoch: 4, Train Loss: 0.758973, Val Loss: 1.004573, Test Loss: 1.004573, Learning Rate: 0.000100
+2025-01-31 03:59:16,857 - iTransformer_stock_prediction - INFO - Epoch: 5, Train Loss: 0.754725, Val Loss: 1.004113, Test Loss: 1.004113, Learning Rate: 0.000100
+2025-01-31 03:59:17,836 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.487599, MSE: 0.862740, RMSE: 0.928838
+2025-01-31 04:04:48,202 - iTransformer_stock_prediction - INFO - Epoch: 1, Train Loss: 0.790777, Val Loss: 1.049605, Test Loss: 1.049605, Learning Rate: 0.000100
+2025-01-31 04:05:00,626 - iTransformer_stock_prediction - INFO - Epoch: 2, Train Loss: 0.771398, Val Loss: 1.027958, Test Loss: 1.027958, Learning Rate: 0.000100
+2025-01-31 04:05:12,099 - iTransformer_stock_prediction - INFO - Epoch: 3, Train Loss: 0.766054, Val Loss: 1.019054, Test Loss: 1.019054, Learning Rate: 0.000100
+2025-01-31 04:05:23,760 - iTransformer_stock_prediction - INFO - Epoch: 4, Train Loss: 0.758812, Val Loss: 1.012932, Test Loss: 1.012932, Learning Rate: 0.000100
+2025-01-31 04:05:35,409 - iTransformer_stock_prediction - INFO - Epoch: 5, Train Loss: 0.755622, Val Loss: 1.004830, Test Loss: 1.004830, Learning Rate: 0.000100
+2025-01-31 04:08:55,886 - iTransformer_stock_prediction - INFO - Epoch: 1, Train Loss: 0.791154, Val Loss: 1.052424, Test Loss: 1.052424, Learning Rate: 0.000100
+2025-01-31 04:09:07,554 - iTransformer_stock_prediction - INFO - Epoch: 2, Train Loss: 0.771169, Val Loss: 1.032375, Test Loss: 1.032375, Learning Rate: 0.000100
+2025-01-31 04:09:19,543 - iTransformer_stock_prediction - INFO - Epoch: 3, Train Loss: 0.766878, Val Loss: 1.021539, Test Loss: 1.021539, Learning Rate: 0.000100
+2025-01-31 04:09:31,806 - iTransformer_stock_prediction - INFO - Epoch: 4, Train Loss: 0.760580, Val Loss: 1.014376, Test Loss: 1.014376, Learning Rate: 0.000100
+2025-01-31 04:09:44,460 - iTransformer_stock_prediction - INFO - Epoch: 5, Train Loss: 0.756246, Val Loss: 1.008511, Test Loss: 1.008511, Learning Rate: 0.000100
+2025-01-31 04:09:44,731 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.477944, MSE: 1.008196, RMSE: 1.004089
+2025-01-31 04:11:38,939 - iTransformer_stock_prediction - INFO - Epoch: 1, Train Loss: 0.788286, Val Loss: 1.050245, Test Loss: 1.050245, Learning Rate: 0.000100
+2025-01-31 04:11:50,602 - iTransformer_stock_prediction - INFO - Epoch: 2, Train Loss: 0.770542, Val Loss: 1.030730, Test Loss: 1.030730, Learning Rate: 0.000100
+2025-01-31 04:12:02,159 - iTransformer_stock_prediction - INFO - Epoch: 3, Train Loss: 0.764279, Val Loss: 1.026882, Test Loss: 1.026882, Learning Rate: 0.000100
+2025-01-31 04:12:14,119 - iTransformer_stock_prediction - INFO - Epoch: 4, Train Loss: 0.758269, Val Loss: 1.011318, Test Loss: 1.011318, Learning Rate: 0.000100
+2025-01-31 04:12:26,583 - iTransformer_stock_prediction - INFO - Epoch: 5, Train Loss: 0.755651, Val Loss: 1.005751, Test Loss: 1.005751, Learning Rate: 0.000100
+2025-01-31 04:12:26,886 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.480523, MSE: 1.005454, RMSE: 1.002723
+2025-01-31 04:14:57,464 - iTransformer_stock_prediction - INFO - Epoch: 1, Train Loss: 0.668401, Val Loss: 1.036972, Test Loss: 1.036972, Learning Rate: 0.000100
+2025-01-31 04:15:18,303 - iTransformer_stock_prediction - INFO - Epoch: 2, Train Loss: 0.652763, Val Loss: 1.028755, Test Loss: 1.028755, Learning Rate: 0.000100
+2025-01-31 04:15:38,851 - iTransformer_stock_prediction - INFO - Epoch: 3, Train Loss: 0.644506, Val Loss: 1.020094, Test Loss: 1.020094, Learning Rate: 0.000100
+2025-01-31 04:16:00,623 - iTransformer_stock_prediction - INFO - Epoch: 4, Train Loss: 0.640376, Val Loss: 1.021849, Test Loss: 1.021849, Learning Rate: 0.000100
+2025-01-31 04:16:23,478 - iTransformer_stock_prediction - INFO - Epoch: 5, Train Loss: 0.637859, Val Loss: 1.016874, Test Loss: 1.016874, Learning Rate: 0.000100
+2025-01-31 04:16:23,816 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.489119, MSE: 1.016626, RMSE: 1.008279
+2025-01-31 04:19:18,169 - iTransformer_stock_prediction - INFO - Epoch: 1, Train Loss: 0.668083, Val Loss: 1.038021, Test Loss: 1.038021, Learning Rate: 0.000100
+2025-01-31 04:19:38,394 - iTransformer_stock_prediction - INFO - Epoch: 2, Train Loss: 0.651377, Val Loss: 1.023391, Test Loss: 1.023391, Learning Rate: 0.000100
+2025-01-31 04:20:00,352 - iTransformer_stock_prediction - INFO - Epoch: 3, Train Loss: 0.644270, Val Loss: 1.020639, Test Loss: 1.020639, Learning Rate: 0.000100
+2025-01-31 04:20:23,094 - iTransformer_stock_prediction - INFO - Epoch: 4, Train Loss: 0.640670, Val Loss: 1.021983, Test Loss: 1.021983, Learning Rate: 0.000100
+2025-01-31 04:21:02,451 - iTransformer_stock_prediction - INFO - Epoch: 5, Train Loss: 0.637927, Val Loss: 1.018145, Test Loss: 1.018145, Learning Rate: 0.000100
+2025-01-31 04:21:03,077 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.485302, MSE: 1.017878, RMSE: 1.008900
+2025-01-31 10:51:03,919 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.489622, MSE: 0.362669, RMSE: 0.602220
+2025-01-31 10:52:22,854 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.417178, MSE: 0.291080, RMSE: 0.539519
+2025-01-31 10:53:53,682 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.471177, MSE: 0.334906, RMSE: 0.578711
+2025-01-31 10:57:41,264 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.416505, MSE: 0.271018, RMSE: 0.520594
+2025-01-31 10:59:24,066 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.505692, MSE: 0.353891, RMSE: 0.594887
+2025-01-31 11:01:15,180 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.454611, MSE: 0.334340, RMSE: 0.578222
+2025-01-31 11:02:46,767 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.493666, MSE: 0.348022, RMSE: 0.589934
+2025-01-31 11:07:35,009 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.384476, MSE: 0.267352, RMSE: 0.517061
+2025-01-31 11:09:00,372 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.417596, MSE: 0.273547, RMSE: 0.523018
+2025-01-31 11:10:17,897 - iTransformer_stock_prediction - INFO - Final Metrics - MAE: 0.378175, MSE: 0.269143, RMSE: 0.518790
