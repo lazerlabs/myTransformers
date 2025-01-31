@@ -143,6 +143,12 @@ class StockVisualizer:
             feature_idx: which feature to plot (0: volume, 1: close, 2: transactions)
             n_samples: number of points to plot
         """
+        print("\nDEBUG - Starting visualization:")
+        print(f"Dataset timestamps length: {len(dataset.timestamps)}")
+        print(f"Dataset data shape: {dataset.data.shape}")
+        print(f"True values shape: {true_values.shape}")
+        print(f"Predictions shape: {predictions.shape}")
+        
         stocks = ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
         num_stocks = len(stocks)
         
@@ -151,32 +157,55 @@ class StockVisualizer:
         
         # Calculate indices for the last sequence
         total_len = dataset.seq_len + dataset.pred_len
-        start_idx = max(0, len(dataset.timestamps) - total_len)  # Ensure we don't go negative
+        start_idx = max(0, len(dataset.timestamps) - total_len)
+        print(f"\nSequence info:")
+        print(f"Total length needed: {total_len}")
+        print(f"Start index: {start_idx}")
         
         # Get timestamps for the entire sequence
         timestamps = dataset.timestamps[start_idx:start_idx + total_len]
-        
-        # Add title with time range
-        start_time = timestamps[0]
-        end_time = timestamps[-1]
-        fig.suptitle(f'Predictions for {self.feature_names[feature_idx]}\nTime Range: {start_time} to {end_time}', fontsize=16)
+        print(f"Timestamps array length: {len(timestamps)}")
+        if len(timestamps) > 0:
+            print(f"First timestamp: {timestamps[0]}")
+            print(f"Last timestamp: {timestamps[-1]}")
         
         # For each stock
         for idx, (stock, ax) in enumerate(zip(stocks, axes)):
+            print(f"\nProcessing stock {stock}:")
+            
             # Get input sequence and true future values
-            input_seq = dataset.data[idx, start_idx:start_idx + dataset.seq_len, feature_idx]
-            true_future = dataset.data[idx, (start_idx + dataset.seq_len):(start_idx + total_len), feature_idx]
+            data_start_idx = max(0, dataset.data.shape[1] - total_len)  # Use data shape instead of timestamps
+            input_seq = dataset.data[idx, data_start_idx:data_start_idx + dataset.seq_len, feature_idx]
+            true_future = dataset.data[idx, (data_start_idx + dataset.seq_len):(data_start_idx + total_len), feature_idx]
+            
+            print(f"Data start index: {data_start_idx}")
+            print(f"Input sequence shape: {input_seq.shape}")
+            print(f"True future shape: {true_future.shape} (should be {dataset.pred_len} for 2 hours)")
             
             # Get the predictions for future values
-            pred_future = predictions[0, idx, :, feature_idx]  # Take first batch for visualization
+            pred_future = predictions[0, idx, :, feature_idx]
+            print(f"Prediction future shape: {pred_future.shape} (should be {dataset.pred_len} for 2 hours)")
+            
+            # Get corresponding timestamps for this range
+            time_start_idx = max(0, len(dataset.timestamps) - dataset.data.shape[1])  # Align with data
+            timestamps = dataset.timestamps[time_start_idx + data_start_idx:time_start_idx + data_start_idx + total_len]
             
             # Combine sequences
             true_seq = np.concatenate([input_seq, true_future])
             pred_seq = np.concatenate([input_seq, pred_future])
             
+            print(f"Final sequence shapes - True: {true_seq.shape}, Pred: {pred_seq.shape}")
+            print(f"Timestamps length: {len(timestamps)} (should be {total_len} for 3 hours total)")
+            
+            # Ensure all arrays have matching lengths
+            min_len = min(len(timestamps), len(true_seq), len(pred_seq))
+            timestamps = timestamps[:min_len]
+            true_seq = true_seq[:min_len]
+            pred_seq = pred_seq[:min_len]
+            
             # Denormalize if needed
-            true_seq = dataset.denormalize(true_seq, idx)
-            pred_seq = dataset.denormalize(pred_seq, idx)
+            true_seq = dataset.denormalize(true_seq, idx, feature_idx=feature_idx)
+            pred_seq = dataset.denormalize(pred_seq, idx, feature_idx=feature_idx)
             
             # Plot with timestamps
             ax.plot(timestamps, true_seq, 

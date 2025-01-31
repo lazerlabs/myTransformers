@@ -4,7 +4,13 @@ import time
 from datetime import datetime
 
 class Logger:
-    def __init__(self, name):
+    def __init__(self, name, log_dir='./logs'):
+        """Initialize logger
+        
+        Args:
+            name (str): Logger name
+            log_dir (str): Directory to store log files
+        """
         self.name = name
         self.metrics = {
             'epoch': [],
@@ -22,15 +28,29 @@ class Logger:
             os.makedirs('figures')
         
         # Set up logging
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(f"{name}.log"),
-                logging.StreamHandler()
-            ]
-        )
         self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.INFO)
+        
+        # Create formatter
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        
+        # Ensure log directory exists
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        
+        # Create file handler
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_file = os.path.join(log_dir, f'{name}_{timestamp}.log')
+        fh = logging.FileHandler(log_file)
+        fh.setLevel(logging.INFO)
+        fh.setFormatter(formatter)
+        self.logger.addHandler(fh)
+        
+        # Create console handler
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.INFO)
+        ch.setFormatter(formatter)
+        self.logger.addHandler(ch)
     
     def log_training(self, epoch, train_loss, val_loss, test_loss, lr):
         """Log training metrics for one epoch"""

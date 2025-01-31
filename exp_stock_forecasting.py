@@ -5,7 +5,7 @@ import os
 import time
 import warnings
 import numpy as np
-from main import create_dataloader
+from stock_dataset import create_dataloader
 from utils.logger import Logger
 from utils.visualization import StockVisualizer
 from data_provider.data_loader import create_data_loaders
@@ -19,7 +19,10 @@ class Exp_Stock_Forecast():
         self.model = self._build_model().to(self.device)
         
         # Initialize logger and visualizer
-        self.logger = Logger(f"{args.model}_stock_prediction")
+        log_dir = './logs'
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        self.logger = Logger(f"{args.model}_stock_prediction", log_dir=log_dir)
         self.visualizer = StockVisualizer()
 
         # Create data loaders
