@@ -8,7 +8,7 @@ from typing import List, Optional
 @dataclass
 class StockPredictionConfig:
     # Data Parameters
-    data_dir: str = "/Users/spider/dev/mscAI/CS5004/dataset"
+    data_dir: str = "./dataset"
     stocks: Optional[List[str]] = None  # If None, will use all stocks in CSV
     default_stocks: List[str] = field(
         default_factory=lambda: ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
@@ -22,8 +22,8 @@ class StockPredictionConfig:
     
     # Sequence Parameters
     seq_len: int = 60  # input sequence length (1 hour of minute data)
-    pred_len: int = 30  # prediction sequence length (30 minutes ahead)
-    label_len: int = 30  # length of labels for teacher forcing
+    pred_len: int = 60  # prediction sequence length (match with sequence length)
+    label_len: int = 60  # length of labels for teacher forcing (match with sequence length)
     scale: bool = True  # whether to scale data
     
     # Model Parameters

@@ -72,6 +72,26 @@ The project includes various visualization tools:
 - Learning rate curves
 - Training metrics visualization
 
+## Training Scripts
+
+The project includes two main training scripts:
+
+### train.py
+- Main training script for full model training
+- Uses full model capacity (d_model = 512)
+- Uses all available training data
+- Runs for 10 epochs by default
+- Saves the model in `./checkpoints` directory
+- Suitable for production model training
+
+### test_run.py
+- Quick testing script for development
+- Uses reduced model capacity (d_model = 128)
+- Uses only 1 file for training
+- Runs for 5 epochs
+- More verbose logging and error handling
+- Suitable for testing changes and debugging
+
 ## Getting Started
 
 1. Install dependencies:

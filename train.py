@@ -23,7 +23,7 @@ def main():
     # Create experiment setting name
     setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_df{}_eb{}_{}_{}'.format(
         config.model,
-        config.data_path.split('/')[-1].replace('.csv', ''),
+        config.train_data_path.split('/')[-1].replace('.csv', ''),
         config.features,
         config.enc_in,
         config.seq_len,
