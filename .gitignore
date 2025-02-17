@@ -23,3 +23,5 @@ logs/
 
 *.log
 *.log.*
+
+myTransformer.code-workspace

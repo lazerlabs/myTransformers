@@ -13,20 +13,21 @@ BASEDIR = os.path.join(WORKSPACE_ROOT, "myTransformer")
 @dataclass
 class StockPredictionConfig:
     # Data Parameters
-    data_dir: str = os.path.join(WORKSPACE_ROOT, "dataset")  # Use workspace root for dataset
+    data_dir: str = os.path.join(BASEDIR, "dataset/extended")  # Use workspace root for dataset
     stocks: Optional[List[str]] = None  # If None, will use all stocks in CSV
     #default_stocks: List[str] = field(
     #       default_factory=lambda: ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
     #)
-    default_stocks: List[str] = field(
-        default_factory=lambda: []
-    )
+    #default_stocks: List[str] = field(
+    #    default_factory=lambda: []
+    #)
     features: List[str] = field(
         default_factory=lambda: ['volume', 'close', 'transactions']
     )
-    train_size: Optional[int] = 5  # Number of files to use for training (None means use all remaining files)
-    test_size: int = 1   # Number of files to use for testing
-    val_size: int = 2    # Number of files to use for validation
+    train_size: Optional[int] = 1  # Number of files to use for training (None means use all remaining files)
+    test_size: int = 0   # Number of files to use for testing
+    #val_size: int = 2    # Number of files to use for validation
+    val_size: int = 1    # Number of files to use for validation
     val_stocks: List[str] = field(
         default_factory=lambda: ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
     )
@@ -46,7 +47,7 @@ class StockPredictionConfig:
     dropout: float = 0.2   # Increased dropout
     embed: str = 'fixed'
     activation: str = 'gelu'
-    output_attention: bool = True  # Enable attention output for analysis
+    output_attention: bool = False
     use_norm: bool = True
     
     # Training Parameters
@@ -125,18 +126,9 @@ class StockPredictionConfig:
         
         # Handle stock selection
         if self.stocks is None or len(self.stocks) == 0:  # Handle both None and empty list
-            # Read first file to get available stocks
-            df = pd.read_csv(csv_files[0])
-            print(f"\nDebug - Ticker column info:")
-            print(f"Ticker value counts:\n{df['ticker'].value_counts().head()}")
-            print(f"Ticker dtype: {df['ticker'].dtype}")
-            
-            # Convert tickers to strings and remove any NaN values
-            tickers = df['ticker'].astype(str).unique()
-            # Filter out any 'nan' strings that might have come from NaN values
-            tickers = [t for t in tickers if t.lower() != 'nan']
-            self.stocks = sorted(tickers)
-            print(f"\nUsing all available stocks: {self.stocks}")
+            # Don't set self.stocks to the list of all tickers
+            # Just leave it as None to indicate we want all stocks
+            print(f"\nUsing all available stocks")
         else:
             self.stocks = self.stocks.copy()  # Make a copy to be safe
             
@@ -152,6 +144,8 @@ class StockPredictionConfig:
             else:
                 print("No GPU available, will use CPU")
                 self.use_gpu = False
+        print(f"Config stocks type: {type(self.stocks)}")
+        print(f"Config stocks value: {self.stocks}")
     
     @property
     def train_data_path(self) -> str:

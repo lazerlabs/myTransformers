@@ -166,8 +166,8 @@ class Exp_Stock_Forecast():
                 model_optim.zero_grad()
                 
                 # Move data to device
-                batch_x = batch_x.float().to(self.device)  # [batch, stocks, seq_len, features]
-                batch_y = batch_y.float().to(self.device)  # [batch, stocks, pred_len, features]
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
                 batch_x_mark = batch_x_mark.float().to(self.device)
                 batch_y_mark = batch_y_mark.float().to(self.device)
                 
@@ -176,10 +176,12 @@ class Exp_Stock_Forecast():
                 dec_inp = torch.cat([batch_y[:, :, :self.args.label_len, :], dec_inp], dim=2).float().to(self.device)
                 
                 # Forward pass
-                outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)  # [batch, stocks, pred_len, features]
+                model_output = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                
+                # Handle model output - extract predictions if model returns tuple
+                outputs = model_output[0] if isinstance(model_output, tuple) else model_output
                 
                 # Calculate loss
-                f_dim = -1 if self.args.features == 'MS' else 0
                 loss = criterion(outputs, batch_y)
                 train_loss.append(loss.item())
                 
@@ -254,8 +256,8 @@ class Exp_Stock_Forecast():
         self.model.eval()
         with torch.no_grad():
             for i, (batch_x, batch_x_mark, batch_y, batch_y_mark) in enumerate(data_loader):
-                batch_x = batch_x.float().to(self.device)  # [batch, stocks, seq_len, features]
-                batch_y = batch_y.float().to(self.device)  # [batch, stocks, pred_len, features]
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
                 batch_x_mark = batch_x_mark.float().to(self.device)
                 batch_y_mark = batch_y_mark.float().to(self.device)
 
@@ -263,8 +265,9 @@ class Exp_Stock_Forecast():
                 dec_inp = torch.zeros_like(batch_y).float()
                 dec_inp = torch.cat([batch_y[:, :, :self.args.label_len, :], dec_inp], dim=2).float().to(self.device)
 
-                # Forward pass
-                outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)  # [batch, stocks, pred_len, features]
+                # Forward pass and handle tuple output
+                model_output = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                outputs = model_output[0] if isinstance(model_output, tuple) else model_output
                 
                 # Move to CPU and convert to numpy
                 pred = outputs.detach().cpu().numpy()

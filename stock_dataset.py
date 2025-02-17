@@ -5,104 +5,174 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 import os
 from configs import StockPredictionConfig
+from tqdm import tqdm
 
 class StockDataset(Dataset):
-    """Custom dataset for stock market data"""
-    def __init__(self, file_path, tickers=['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP'], 
-                 seq_len=60, pred_len=30, scale=True):
+    """Custom dataset for stock market data with memory-efficient loading"""
+    def __init__(self, file_paths, tickers=None, seq_len=60, pred_len=30, 
+                 scale=True, features=None, label_len=None):
         """
         Args:
-            file_path (str): Path to the CSV file
-            tickers (list): List of stock tickers to include
+            file_paths (str or list): Path(s) to the CSV file(s)
+            tickers (list, optional): List of stock tickers to include
             seq_len (int): Input sequence length
             pred_len (int): Prediction sequence length
             scale (bool): Whether to apply standardization
+            features (list): List of features to use
+            label_len (int, optional): Length of label sequence
         """
+        print(f"StockDataset.__init__ - Received tickers: {tickers}")
         self.seq_len = seq_len
         self.pred_len = pred_len
+        self.label_len = label_len if label_len is not None else pred_len
         self.scale = scale
-        self.feature_names = ['volume', 'close', 'transactions']
-        
-        # Read data
-        df = pd.read_csv(file_path)
-        
-        # Filter selected tickers
-        df = df[df['ticker'].isin(tickers)]
-        
-        # Convert timestamp to datetime and sort
-        df['window_start'] = pd.to_datetime(df['window_start'], unit='ns')
-        df = df.sort_values(['ticker', 'window_start'])
-        
-        # Store timestamps for later use
-        self.timestamps = df[df['ticker'] == tickers[0]]['window_start'].values
-        
-        # Store the last timestamp for visualization
-        self.last_timestamp = df['window_start'].max()
-        
-        # Find minimum length across all tickers to ensure equal lengths
-        min_length = float('inf')
-        ticker_data_dict = {}
-        for ticker in tickers:
-            ticker_df = df[df['ticker'] == ticker]
-            ticker_data = ticker_df[self.feature_names].values
-            min_length = min(min_length, len(ticker_data))
-            ticker_data_dict[ticker] = ticker_data
-        
-        # Ensure minimum length is sufficient for sequence
-        required_length = seq_len + pred_len
-        if min_length < required_length:
-            raise ValueError(f"Some stocks have less than {required_length} data points")
-        
-        # Trim all sequences to the same length
-        self.data = []
-        self.scalers = []  # List of lists: [stock][feature]
-        for ticker in tickers:
-            ticker_data = ticker_data_dict[ticker][:min_length]  # Trim to minimum length
+        self.features = features or ['volume', 'close', 'transactions']
+
+       
+        # Convert single file path to list
+        if isinstance(file_paths, str):
+            file_paths = [file_paths]
+        self.file_paths = file_paths
             
-            # Normalize if requested
-            if scale:
-                # Create a scaler for each feature
-                stock_scalers = []
-                for feature_idx in range(len(self.feature_names)):
-                    scaler = StandardScaler()
-                    feature_data = ticker_data[:, feature_idx].reshape(-1, 1)
-                    ticker_data[:, feature_idx] = scaler.fit_transform(feature_data).ravel()
-                    stock_scalers.append(scaler)
-                self.scalers.append(stock_scalers)
+        # First pass: collect metadata and compute statistics
+        print("\nAnalyzing data files...")
+        self.metadata = []  # Store metadata for each file/stock combination
+        total_sequences = 0
+        
+        for file_path in file_paths:
+            print(f"\nProcessing {os.path.basename(file_path)}:")
+            
+            # First pass: get all unique tickers from the file
+            all_tickers = set()
+            chunks = pd.read_csv(file_path, chunksize=10000)
+            for chunk in tqdm(chunks, desc="Finding all tickers"):
+                # Convert to string and filter out NaN values
+                chunk_tickers = chunk['ticker'].astype(str)
+                chunk_tickers = chunk_tickers[chunk_tickers != 'nan'].unique()
+                all_tickers.update(chunk_tickers)
+            
+            # Convert to sorted list, ensuring all are strings and no 'nan'
+            available_tickers = sorted([str(t) for t in all_tickers if str(t).lower() != 'nan'])
+            
+            # Debug print
+            print(f"Total unique tickers found: {len(available_tickers)}")
+            print(f"Sample of tickers: {available_tickers[:20]}")  # Show first 20 sorted tickers
+            
+            # Filter tickers if specified
+            if tickers is not None:
+                available_tickers = [t for t in tickers if t in available_tickers]
+                print(f"Filtered to {len(available_tickers)} specified tickers: {available_tickers}")
             else:
-                self.scalers.append([None] * len(self.feature_names))
+                print(f"Using all {len(available_tickers)} tickers")
             
-            self.data.append(ticker_data)
+            # Initialize statistics
+            file_stats = {}
+            for ticker in available_tickers:
+                file_stats[ticker] = {
+                    'count': 0,
+                    'sum': np.zeros(len(self.features)),
+                    'sum_sq': np.zeros(len(self.features))
+                }
+            
+            # Second pass: compute statistics more efficiently
+            chunks = pd.read_csv(file_path, chunksize=10000)
+            for chunk in tqdm(chunks, desc="Computing statistics"):
+                # Group by ticker and compute stats for all tickers in chunk at once
+                grouped = chunk.groupby('ticker')[self.features]
+                counts = grouped.count().iloc[:, 0]  # Count of rows per ticker
+                sums = grouped.sum()
+                squared = chunk[self.features] ** 2
+                sum_squares = squared.groupby(chunk['ticker']).sum()
+                
+                # Update statistics for each ticker found in this chunk
+                for ticker in counts.index:
+                    if ticker in file_stats:
+                        file_stats[ticker]['count'] += counts[ticker]
+                        file_stats[ticker]['sum'] += sums.loc[ticker].values
+                        file_stats[ticker]['sum_sq'] += sum_squares.loc[ticker].values
+            
+            # Debug print
+            print("\nStatistics summary:")
+            #for ticker in available_tickers:
+            #    print(f"{ticker}: {file_stats[ticker]['count']} rows")
+            
+            # Compute final statistics and store metadata
+            for ticker in available_tickers:
+                stats = file_stats[ticker]
+                if stats['count'] >= (self.seq_len + self.pred_len):
+                    mean = stats['sum'] / stats['count']
+                    var = (stats['sum_sq'] / stats['count']) - (mean ** 2)
+                    std = np.sqrt(var)
+                    
+                    sequences = stats['count'] - self.seq_len - self.pred_len + 1
+                    total_sequences += sequences
+                    
+                    self.metadata.append({
+                        'file_path': file_path,
+                        'ticker': ticker,
+                        'start_idx': len(self.metadata),
+                        'sequences': sequences,
+                        'stats': {'mean': mean, 'std': std}
+                    })
+            
+            print(f"Valid tickers in file: {len([s for s in file_stats.keys() if file_stats[s]['count'] >= (self.seq_len + self.pred_len)])}")
+            print(f"Total sequences: {total_sequences}")
         
-        # Convert to numpy array
-        self.data = np.array(self.data)  # Shape: [num_stocks, sequence_length, num_features]
+        if not self.metadata:
+            raise ValueError("No valid data found in any of the files")
         
-        # Store tickers for reference
-        self.tickers = tickers
+        self.total_sequences = total_sequences
+        print(f"\nDataset initialized with {len(self.file_paths)} files")
+        print(f"Total available sequences: {self.total_sequences}")
 
     def __len__(self):
-        return self.data.shape[1] - self.seq_len - self.pred_len + 1
-
+        return self.total_sequences
+        
     def __getitem__(self, idx):
-        # Get sequences
-        s_begin = idx
-        s_end = s_begin + self.seq_len
-        r_begin = s_end
-        r_end = r_begin + self.pred_len
-
-        seq_x = self.data[:, s_begin:s_end, :]  # [num_stocks, seq_len, features]
-        seq_y = self.data[:, r_begin:r_end, :]  # [num_stocks, pred_len, features]
-
-        # Create empty mark tensors
-        batch_x_mark = torch.zeros((seq_x.shape[0], seq_x.shape[1], 1))  # [num_stocks, seq_len, 1]
-        batch_y_mark = torch.zeros((seq_y.shape[0], seq_y.shape[1], 1))  # [num_stocks, pred_len, 1]
-
-        return (
-            torch.FloatTensor(seq_x),  # [batch, seq_len, features]
-            torch.FloatTensor(seq_y),  # [batch, pred_len, features]
-            torch.FloatTensor(batch_x_mark),  # [batch, seq_len, 1]
-            torch.FloatTensor(batch_y_mark)   # [batch, pred_len, 1]
-        )
+        """Get a sequence starting at idx"""
+        # Find which file/stock contains this index
+        for meta in self.metadata:
+            if idx < meta['sequences']:
+                # Found the right file and stock
+                # Read only the needed portion of the file
+                ticker_df = pd.read_csv(
+                    meta['file_path'],
+                    skiprows=lambda x: x > 0 and x < idx,  # Skip rows we don't need
+                    nrows=self.seq_len + self.pred_len     # Read only rows we need
+                )
+                ticker_df = ticker_df[ticker_df['ticker'] == meta['ticker']]
+                
+                # Get the sequence
+                sequence = ticker_df[self.features].values
+                
+                # Normalize if needed
+                if self.scale:
+                    sequence = (sequence - meta['stats']['mean']) / meta['stats']['std']
+                
+                # Split into x and y
+                x = sequence[:self.seq_len]
+                y = sequence[self.seq_len:self.seq_len + self.pred_len]
+                
+                # Create time features (dummy for now)
+                x_mark = np.zeros((self.seq_len, 1))
+                y_mark = np.zeros((self.pred_len, 1))
+                
+                # Add batch dimension
+                x = np.expand_dims(x, axis=0)
+                y = np.expand_dims(y, axis=0)
+                x_mark = np.expand_dims(x_mark, axis=0)
+                y_mark = np.expand_dims(y_mark, axis=0)
+                
+                return (
+                    torch.FloatTensor(x),
+                    torch.FloatTensor(x_mark),
+                    torch.FloatTensor(y),
+                    torch.FloatTensor(y_mark)
+                )
+            
+            idx -= meta['sequences']
+        
+        raise IndexError("Index out of range")
 
     def get_last_timestamp(self):
         """Return the last timestamp in the dataset"""
@@ -131,7 +201,7 @@ class StockDataset(Dataset):
         else:
             # Multiple feature data
             result = np.zeros_like(data)
-            for i in range(len(self.feature_names)):
+            for i in range(len(self.features)):
                 feature_data = data[..., i].reshape(-1, 1)
                 result[..., i] = self.scalers[stock_idx][i].inverse_transform(feature_data).ravel()
             return result
@@ -141,46 +211,41 @@ class StockDataset(Dataset):
         return self.timestamps[start_idx:start_idx + length]
 
 def create_dataloader(file_path=None, batch_size=32, seq_len=60, pred_len=30, scale=True, 
-                     tickers=['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP'], config=None):
-    """Create DataLoader for stock market data
+                     tickers=None, features=None, config=None):
+    print(f"create_dataloader - Initial tickers: {tickers}")
     
-    Args:
-        file_path (str, optional): Path to CSV file. If config is provided, this is ignored.
-        batch_size (int, optional): Batch size. Defaults to 32.
-        seq_len (int, optional): Input sequence length. Defaults to 60.
-        pred_len (int, optional): Prediction sequence length. Defaults to 30.
-        scale (bool, optional): Whether to apply standardization. Defaults to True.
-        tickers (list, optional): List of stock tickers. Defaults to ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP'].
-        config (StockPredictionConfig, optional): Configuration object. If provided, its values take precedence.
-    """
     # Use config values if provided, otherwise use default parameters
     if config is not None:
-        file_path = file_path or config.train_data_path  # Use provided file_path or config path
+        file_path = file_path or config.train_data_path
         batch_size = config.batch_size
         seq_len = config.seq_len
         pred_len = config.pred_len
         scale = config.scale
+        print(f"create_dataloader - Config stocks: {config.stocks}")
         tickers = config.stocks
-    
-    if file_path is None:
-        raise ValueError("Either file_path or config must be provided")
+        print(f"create_dataloader - After config tickers: {tickers}")
+        features = config.features
 
     dataset = StockDataset(
-        file_path=file_path,
-        tickers=tickers,
+        file_paths=file_path,
+        tickers=tickers,  # This should be None
         seq_len=seq_len,
         pred_len=pred_len,
-        scale=scale
+        scale=scale,
+        features=features
     )
     
-    # Adjust batch_size to account for multiple stocks
-    effective_batch_size = batch_size // len(tickers)
-    if effective_batch_size == 0:
-        effective_batch_size = 1
+    # Adjust batch_size if using multiple stocks
+    if tickers:
+        effective_batch_size = batch_size // len(tickers)
+        if effective_batch_size == 0:
+            effective_batch_size = 1
+    else:
+        effective_batch_size = batch_size
     
     dataloader = DataLoader(
         dataset,
-        batch_size=effective_batch_size,  # Adjusted batch size
+        batch_size=effective_batch_size,
         shuffle=True,
         num_workers=0,
         drop_last=True

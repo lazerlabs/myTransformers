@@ -40,38 +40,117 @@ The model processes the following features for each stock:
 - The total number of sequences is the sum of available sequences from all stocks in all files
 - Batch creation is dynamic, potentially mixing sequences from different stocks and files
 
+### Data Splitting
+- Split level: File-based splitting
+- Split strategy: Random shuffle of files, then sequential assignment
+- Default split sizes:
+  - Test set: 1 file
+  - Validation set: 2 files
+  - Training set: Configurable via train_size (default 5 files)
+- Minimum requirement: Need at least (test_size + val_size + 1) files
+- Each file can contain multiple stocks and sequences
+- Sequence creation:
+  - Each stock's data is split into sequences using sliding windows
+  - Minimum required length per stock: sequence_length + prediction_length
+  - Only stocks with sufficient data length are included
+  - Each valid stock contributes multiple sequences based on its length
+
+### Data Processing Details
+- Per-stock normalization:
+  - Mean and standard deviation calculated independently for each stock within each file
+  - Z-score normalization applied to features
+- Sequence generation:
+  - Input sequence length: 60 minutes
+  - Prediction length: 15 minutes (configurable)
+  - Label length: 30 minutes (for teacher forcing)
+- Features processed:
+  - Volume
+  - Close price
+  - Number of transactions
+
 ## Model Architecture
 
-### Tokenization
-- Feature-first approach where each feature dimension is treated as a token
+### Tokenization and Input Processing
+- Each feature (volume, close, transactions) is treated as a token
+- Input shape: [Batch, Stocks, Time, Features]
+- Features are normalized per stock using z-score normalization
 - Temporal information is encoded in the feature dimension
 
-### Embedding
-- Linear embedding layer to project input features
-- Feature embedding for each feature type
-- Temporal gradient information added to capture trends
-- Feature embedding dimension: 512
+### Embedding Layer
+The embedding system (`DataEmbedding_inverted`) combines:
+- Value embedding: Linear projection of input features
+- Temporal embedding: Captures gradient information
+- Feature embedding: Learned embeddings for 3 features (close, volume, transactions)
+- Positional encoding: Sinusoidal with learnable scale parameter
+- Additional components:
+  - Layer normalization
+  - Dropout (configurable, default 0.1)
+  - Temporal gradient computation with scale normalization
 
 ### Transformer Architecture
-- Multi-head self-attention mechanism
-- 4 transformer encoder layers
-- 16 attention heads per layer (increased from 8)
-- Feed-forward network dimension: 2048
-- Dropout rate: 0.2 (increased from 0.1 for better regularization)
+- Encoder-only architecture (no decoder)
+- Core components:
+  - Multi-head self-attention mechanism
+  - Feed-forward network
+  - Layer normalization
+- Default configuration:
+  - Model dimension (d_model): 512
+  - Number of heads (n_heads): 8
+  - Number of encoder layers (e_layers): 4
+  - Feed-forward dimension (d_ff): 2048
+  - Dropout rate: 0.2
+  - Activation: GELU
 
-### Output Layer
-- Linear projection layer for final predictions
-- Outputs predictions for all features
+### Loss Functions
+Multiple loss functions available through `StockPredictionLoss`:
+- MSE (Mean Squared Error)
+- Squared MAE (Mean Absolute Error)
+- Huber Loss (delta=1.0)
+- Asymmetric Loss (alpha=1.5)
+- Directional Loss
+  - Combines value accuracy and direction accuracy
+  - Configurable direction weight (default: 0.2)
+- Adaptive Scale Loss
+  - Handles different scales of price movements
+  - Configurable alpha (0.3) and beta (2.0)
+
+## Training Configuration
+
+### Default Parameters
+- Sequence length: 60 (1 hour of minute data)
+- Prediction length: 15 (predict next 15 minutes)
+- Label length: 30 (for teacher forcing)
+- Batch size: 64
+- Learning rate: 5e-4
+- Training epochs: 20
+- Early stopping patience: 5
+
+### Learning Rate Scheduling
+- Scheduler: Cosine annealing
+- Minimum learning rate: 1e-5
+- Warmup epochs: 2
+- Decay factor: 0.1
+- Scheduler patience: 3
+
+### Data Processing
+- Chunk size: 10,000 rows for efficient memory usage
+- Per-stock statistics computation
+- Features processed: volume, close price, transactions
+- Automatic hardware selection (CUDA/MPS/CPU)
 
 ## Training and Evaluation
 
 ### Training Process
 - Adam optimizer with learning rate scheduling
-- Cosine annealing learning rate schedule
-- Loss function: Mean Squared Error (MSE) with optional directional loss
-- Early stopping based on validation loss (configurable patience)
+- Loss function options:
+  - Mean Squared Error (MSE)
+  - Squared MAE
+  - Directional loss (combines base loss with directional prediction, weight: 0.3)
+- Early stopping based on validation loss
 - Batch size: 32
-- Warm-up epochs: 1
+- Sequence length: 60 minutes
+- Prediction length: 60 minutes
+- Label length: 60 minutes (for teacher forcing
 
 ### Evaluation Metrics
 - Mean Absolute Error (MAE)
@@ -90,19 +169,25 @@ The project includes various visualization tools:
 
 ### test_run.py
 - Quick testing script for development
-- Configurable sequence length and prediction horizon
-- Uses reduced model capacity for faster iteration
-- Saves embeddings for visualization
-- More verbose logging and error handling
-- Automatically selects best available device (CUDA, MPS, or CPU)
+- Reduced model configuration:
+  - Model dimension: 256
+  - Sequence length: 60 minutes
+  - Prediction length: 60 minutes
+  - Label length: 60 minutes
+  - Directional loss weight: 0.3
+- Includes embedding visualization
+- More verbose logging
+- Automatically selects best available device
 
 ### train.py
-- Main training script for full model training
-- Uses full model capacity
-- Processes all available training data
-- Supports early stopping
-- Includes learning rate scheduling
-- Saves checkpoints and visualizations
+- Main training script for production
+- Full model configuration:
+  - Model dimension: 512 (default)
+  - Uses default sequence/prediction lengths
+  - Directional loss weight: 0.8
+- More emphasis on directional prediction
+- Detailed experiment naming
+- Supports keyboard interrupt for early stopping
 
 ## Getting Started
 
@@ -351,3 +436,9 @@ Current architecture:
    - LLM: Much longer sequences (thousands of tokens)
 
 This architecture is specifically optimized for time series forecasting by inverting the traditional transformer architecture to better handle feature relationships across time.
+
+## Hardware Support
+The model automatically selects the best available hardware:
+- CUDA GPU if available
+- Apple Silicon MPS if available
+- CPU as fallback
