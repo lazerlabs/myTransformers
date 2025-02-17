@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 import os
+from configs import StockPredictionConfig
 
 class StockDataset(Dataset):
     """Custom dataset for stock market data"""
@@ -189,7 +190,9 @@ def create_dataloader(file_path=None, batch_size=32, seq_len=60, pred_len=30, sc
 
 if __name__ == "__main__":
     # Example usage
-    file_path = "/Users/spider/dev/mscAI/CS5004/dataset/2025-01-15.csv"
+    # Get data directory from config
+    config = StockPredictionConfig()
+    file_path = os.path.join(config.data_dir, "2024-11-01.csv")  # Use a sample file
     
     # Create dataloader
     dataset, dataloader = create_dataloader(

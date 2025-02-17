@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
+import torch
+import os
 
 class StockDataset(Dataset):
     def __init__(self, data_paths, seq_len, pred_len, label_len=None, stocks=None, features=None):
@@ -12,9 +14,10 @@ class StockDataset(Dataset):
             seq_len: length of input sequence
             pred_len: length of prediction sequence
             label_len: length of label sequence (defaults to pred_len if None)
-            stocks: list of stock symbols to use (if None, use all stocks)
+            stocks: list of stock symbols to use (if None, use all stocks in each file)
             features: list of features to use (if None, use default)
         """
+        self.data_paths = data_paths
         self.seq_len = seq_len
         self.pred_len = pred_len
         self.label_len = label_len if label_len is not None else pred_len
@@ -25,146 +28,123 @@ class StockDataset(Dataset):
             features = ['volume', 'close', 'transactions']
         self.features = features
         
-        # Initialize arrays and store lengths
-        self.data = []
-        self.time_data = []
-        self.stock_lengths = {}
-        self.feature_stats = {}  # Store mean and std for each stock and feature
+        # Process each file to get available data
+        print("\nProcessing files:")
+        self.file_data = []  # Store metadata for each file
+        total_sequences = 0
         
-        # Process all files
-        all_data = []
-        for data_path in data_paths:
-            df = pd.read_csv(data_path)
-            if 'ticker' not in df.columns:
-                raise ValueError(f"CSV file {data_path} must contain a 'ticker' column")
-            all_data.append(df)
-        
-        # Concatenate all data and sort by timestamp
-        df = pd.concat(all_data, ignore_index=True)
-        
-        # Get all available stocks if none specified
-        if stocks is None:
-            stocks = sorted(df['ticker'].unique())
-        self.stocks = stocks
-        
-        # Sort by window_start timestamp
-        if 'window_start' in df.columns:
-            df['window_start'] = pd.to_datetime(df['window_start'])
-            df = df.sort_values('window_start')
-            # Store timestamps for visualization
-            self.timestamps = df['window_start'].unique()
-            # Convert timestamps to hour of day and add as time features
-            df['hour'] = df['window_start'].dt.hour
-            df['minute'] = df['window_start'].dt.minute
-            self.time_features = ['hour', 'minute']
-        else:
-            # If no timestamp, use dummy time features
-            df['hour'] = 0
-            df['minute'] = 0
-            self.time_features = ['hour', 'minute']
-            self.timestamps = pd.date_range('2000-01-01', periods=len(df), freq='1min')
-        
-        # Store the last timestamp
-        self.last_timestamp = self.timestamps[-1]
-        
-        # Find minimum length across all stocks
-        min_stock_length = float('inf')
-        for stock in self.stocks:
-            stock_df = df[df['ticker'] == stock]
-            if len(stock_df) == 0:
-                raise ValueError(f"Stock {stock} not found in data files")
-            min_stock_length = min(min_stock_length, len(stock_df))
-        
-        # Adjust sequence lengths if necessary
-        if min_stock_length < self.min_required_length:
-            print(f"Warning: Adjusting sequence lengths due to data availability")
-            print(f"Minimum available length: {min_stock_length}")
-            # Reserve 1/3 of available data for prediction
-            self.pred_len = min_stock_length // 3
-            self.seq_len = min_stock_length - self.pred_len
-            print(f"Adjusted seq_len: {self.seq_len}, pred_len: {self.pred_len}")
-        
-        # Process each stock
-        for stock in self.stocks:
-            stock_df = df[df['ticker'] == stock]
+        for file_path in data_paths:
+            file_name = os.path.basename(file_path)
+            print(f"\nProcessing {file_name}:")
             
-            # Interpolate missing values if any
-            stock_df = stock_df.sort_values('window_start')
-            stock_df[self.features] = stock_df[self.features].interpolate(method='linear')
+            # Read the file
+            df = pd.read_csv(file_path)
             
-            # Process features
-            stock_data = stock_df[self.features].values
+            # Get available stocks in this file
+            file_stocks = df['ticker'].unique() if stocks is None else [s for s in stocks if s in df['ticker'].unique()]
             
-            # Store statistics for denormalization
-            self.feature_stats[stock] = {
-                'mean': stock_data.mean(axis=0),
-                'std': stock_data.std(axis=0)
-            }
+            # Process each stock in this file
+            file_stock_data = []
+            file_total_timestamps = 0
+            file_total_sequences = 0
             
-            # Normalize each feature independently
-            stock_data = (stock_data - self.feature_stats[stock]['mean']) / self.feature_stats[stock]['std']
-            self.data.append(stock_data)
+            for stock in file_stocks:
+                stock_df = df[df['ticker'] == stock]
+                if len(stock_df) >= self.min_required_length:
+                    # Calculate statistics for this stock
+                    stock_data = stock_df[self.features].values
+                    stats = {
+                        'mean': stock_data.mean(axis=0),
+                        'std': stock_data.std(axis=0),
+                        'length': len(stock_df)
+                    }
+                    
+                    sequences = len(stock_df) - self.min_required_length + 1
+                    file_total_timestamps += len(stock_df)
+                    file_total_sequences += sequences
+                    
+                    # Store metadata for this stock
+                    file_stock_data.append({
+                        'ticker': stock,
+                        'stats': stats,
+                        'sequences': sequences
+                    })
             
-            # Process time features
-            time_data = stock_df[self.time_features].values
-            self.time_data.append(time_data)
+            if file_stock_data:
+                self.file_data.append({
+                    'path': file_path,
+                    'stocks': file_stock_data
+                })
+                total_sequences += file_total_sequences
+                
+                # Print summary for this file
+                print(f"  Total rows: {len(df)}")
+                print(f"  Available stocks: {len(file_stocks)}")
+                print(f"  Valid stocks: {len(file_stock_data)}")
+                print(f"  Total timestamps: {file_total_timestamps}")
+                print(f"  Total sequences: {file_total_sequences}")
+        
+        if not self.file_data:
+            raise ValueError("No valid data found in any of the files")
             
-            self.stock_lengths[stock] = len(stock_data)
-        
-        self.data = np.array(self.data, dtype=object)  # Store as object array to handle different lengths
-        self.time_data = np.array(self.time_data, dtype=object)
-        self.min_length = min(self.stock_lengths.values())
-        
-        print(f"Loaded {len(data_paths)} files with {self.min_length} timestamps for {len(self.stocks)} stocks")
-        print(f"Using sequence length: {self.seq_len}, prediction length: {self.pred_len}")
-    
-    def denormalize(self, data, stock_idx):
-        """Denormalize data for a specific stock"""
-        stock = self.stocks[stock_idx]
-        return data * self.feature_stats[stock]['std'] + self.feature_stats[stock]['mean']
-    
-    def __len__(self):
-        # Use the shortest stock's length to determine number of sequences
-        # Need enough data for input sequence and prediction sequence
-        return max(0, self.min_length - self.seq_len - self.pred_len + 1)
-    
-    def __getitem__(self, index):
-        """
-        Returns:
-            x: Input sequence [n_stocks, seq_len, features]
-            x_mark: Time features for input sequence [n_stocks, seq_len, time_features]
-            y: Target sequence [n_stocks, pred_len, features]
-            y_mark: Time features for target sequence [n_stocks, pred_len, time_features]
-        """
-        s_begin = index
-        s_end = s_begin + self.seq_len
-        r_begin = s_end
-        r_end = r_begin + self.pred_len  # Target sequence should be pred_len long
-        
-        # Get sequences for all stocks
-        x = np.stack([stock_data[s_begin:s_end] for stock_data in self.data])
-        y = np.stack([stock_data[r_begin:r_end] for stock_data in self.data])
-        
-        # Get time features
-        x_mark = np.stack([time_data[s_begin:s_end] for time_data in self.time_data])
-        y_mark = np.stack([time_data[r_begin:r_end] for time_data in self.time_data])
-        
-        return x, x_mark, y, y_mark
+        self.total_sequences = total_sequences
+        print(f"\nDataset initialized with {len(self.file_data)} files")
+        print(f"Total available sequences across all files: {self.total_sequences}")
 
-    def get_last_timestamp(self):
-        """Return the last timestamp in the dataset"""
-        return self.last_timestamp
+    def __len__(self):
+        return self.total_sequences
+        
+    def __getitem__(self, idx):
+        """Get a sequence starting at idx"""
+        # Find which file and stock contains this index
+        current_idx = 0
+        for file_info in self.file_data:
+            for stock_info in file_info['stocks']:
+                if current_idx + stock_info['sequences'] > idx:
+                    # Found the right file and stock
+                    pos_in_stock = idx - current_idx
+                    
+                    # Read the data
+                    df = pd.read_csv(file_info['path'])
+                    stock_df = df[df['ticker'] == stock_info['ticker']]
+                    
+                    # Get the sequence
+                    start_idx = pos_in_stock
+                    end_idx = start_idx + self.seq_len + self.pred_len
+                    sequence = stock_df[self.features].values[start_idx:end_idx]
+                    
+                    # Normalize
+                    sequence = (sequence - stock_info['stats']['mean']) / stock_info['stats']['std']
+                    
+                    # Split into x and y
+                    x = sequence[:self.seq_len]
+                    y = sequence[self.seq_len:self.seq_len + self.pred_len]
+                    
+                    # Create time features (dummy for now)
+                    x_mark = np.zeros((self.seq_len, 1))
+                    y_mark = np.zeros((self.pred_len, 1))
+                    
+                    # Add batch and stock dimensions (1 stock at a time)
+                    x = np.expand_dims(x, axis=0)
+                    y = np.expand_dims(y, axis=0)
+                    x_mark = np.expand_dims(x_mark, axis=0)
+                    y_mark = np.expand_dims(y_mark, axis=0)
+                    
+                    return (
+                        torch.FloatTensor(x),
+                        torch.FloatTensor(x_mark),
+                        torch.FloatTensor(y),
+                        torch.FloatTensor(y_mark)
+                    )
+                    
+                current_idx += stock_info['sequences']
+        
+        raise IndexError("Index out of range")
 
 def create_data_loaders(config):
-    """
-    Create train/val/test data loaders
-    
-    Args:
-        config: StockPredictionConfig object
-    """
-    # Create datasets
+    """Create train/val/test data loaders"""
     train_dataset = StockDataset(
-        config.train_files,  # Use all training files
+        config.train_files,
         config.seq_len,
         config.pred_len,
         label_len=config.label_len,
@@ -173,7 +153,7 @@ def create_data_loaders(config):
     )
     
     test_dataset = StockDataset(
-        config.test_files,  # Use all test files
+        config.test_files,
         config.seq_len,
         config.pred_len,
         label_len=config.label_len,
@@ -181,17 +161,18 @@ def create_data_loaders(config):
         features=config.features
     )
     
-    # Create data loaders
     train_loader = DataLoader(
-        train_dataset, 
+        train_dataset,
         batch_size=config.batch_size,
-        shuffle=True
+        shuffle=True,
+        num_workers=0  # Keep single process for now
     )
     
     test_loader = DataLoader(
         test_dataset,
         batch_size=config.batch_size,
-        shuffle=False
+        shuffle=False,
+        num_workers=0
     )
     
     return train_loader, test_loader 

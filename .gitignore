@@ -3,3 +3,23 @@ __pycache__/
 
 results/
 checkpoints/
+__pycache__/
+bin/
+lib/
+lib64/
+share/
+include/
+local/
+
+dataset/extended/
+
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+
+logs/
+
+*.log
+*.log.*

@@ -19,11 +19,11 @@ class Exp_Stock_Forecast():
         self.model = self._build_model().to(self.device)
         
         # Initialize logger and visualizer
-        log_dir = './logs'
+        log_dir = args.logs_dir
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         self.logger = Logger(f"{args.model}_stock_prediction", log_dir=log_dir)
-        self.visualizer = StockVisualizer()
+        self.visualizer = StockVisualizer(save_dir=args.figures_dir)
 
         # Create data loaders
         self.train_loader, self.test_loader = create_data_loaders(args)
@@ -115,10 +115,10 @@ class Exp_Stock_Forecast():
         test_data, test_loader = self._get_data(flag='test')
         
         # Ensure base checkpoints directory exists
-        if not os.path.exists(self.args.checkpoints):
-            os.makedirs(self.args.checkpoints)
+        if not os.path.exists(self.args.checkpoints_dir):
+            os.makedirs(self.args.checkpoints_dir)
             
-        path = os.path.join(self.args.checkpoints, setting)
+        path = os.path.join(self.args.checkpoints_dir, setting)
         # Clean up old checkpoints
         if os.path.exists(path):
             import shutil
@@ -242,7 +242,7 @@ class Exp_Stock_Forecast():
         # Only load the model for final testing
         if test:
             print('loading model')
-            self.model.load_state_dict(torch.load(os.path.join('./checkpoints/' + setting, 'checkpoint.pth')))
+            self.model.load_state_dict(torch.load(os.path.join(self.args.checkpoints_dir, setting, 'checkpoint.pth')))
 
         # Use appropriate data loader
         data_flag = 'test' if test else 'val'
@@ -317,6 +317,13 @@ class Exp_Stock_Forecast():
 
 class EarlyStopping:
     def __init__(self, patience=7, verbose=False, delta=0):
+        """
+        Args:
+            patience (int): How long to wait after last time validation loss improved.
+                          Default: 7. Set to 0 to disable early stopping.
+            verbose (bool): If True, prints a message for each validation loss improvement.
+            delta (float): Minimum change in the monitored quantity to qualify as an improvement.
+        """
         self.patience = patience
         self.verbose = verbose
         self.counter = 0
@@ -332,9 +339,10 @@ class EarlyStopping:
             self.save_checkpoint(val_loss, model, path)
         elif score < self.best_score + self.delta:
             self.counter += 1
-            print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
-            if self.counter >= self.patience:
-                self.early_stop = True
+            if self.patience > 0:  # Only check for early stopping if patience > 0
+                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+                if self.counter >= self.patience:
+                    self.early_stop = True
         else:
             self.best_score = score
             self.save_checkpoint(val_loss, model, path)

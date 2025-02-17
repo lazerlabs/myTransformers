@@ -4,6 +4,7 @@ import random
 import numpy as np
 from configs import StockPredictionConfig
 from exp_stock_forecasting import Exp_Stock_Forecast
+from utils.loss import get_loss_function
 
 def setup_seed(seed):
     """Set random seed for reproducibility"""
@@ -20,8 +21,15 @@ def main():
     # Load config
     config = StockPredictionConfig()
     
+    # Modify loss configuration to encourage more dynamic predictions
+    config.loss_type = "directional"
+    config.loss_kwargs = {
+        "base_loss": "squared_mae",
+        "direction_weight": 0.8  # Increase from 0.3 to give more weight to directional changes
+    }
+    
     # Create experiment setting name
-    setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_df{}_eb{}_{}_{}'.format(
+    setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_df{}_eb{}_{}_{}_{}'.format(
         config.model,
         config.train_data_path.split('/')[-1].replace('.csv', ''),
         config.features,
@@ -35,7 +43,8 @@ def main():
         config.d_ff,
         config.embed,
         config.activation,
-        config.output_attention
+        config.output_attention,
+        config.loss_type  # Add loss type to setting name
     )
 
     # Create experiment

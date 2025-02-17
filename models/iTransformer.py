@@ -55,6 +55,26 @@ class Model(nn.Module):
         # Projection layer to predict future values
         self.projection = nn.Linear(configs.d_model, configs.pred_len, bias=True)
 
+    def get_embeddings(self, x_enc, x_mark_enc):
+        """Get embeddings for input data"""
+        batch_size, num_stocks, seq_len, features = x_enc.shape
+        x_enc = x_enc.reshape(-1, seq_len, features)
+        x_mark_enc = x_mark_enc.reshape(-1, x_mark_enc.shape[2], x_mark_enc.shape[3])
+
+        if self.use_norm:
+            means = x_enc.mean(1, keepdim=True).detach()
+            x_enc = x_enc - means
+            stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+            x_enc /= stdev
+
+        # Get embeddings from embedding layer
+        embeddings = self.enc_embedding(x_enc, x_mark_enc)
+        
+        # Reshape back to include stock dimension
+        embeddings = embeddings.reshape(batch_size, num_stocks, *embeddings.shape[1:])
+        
+        return embeddings
+
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # Reshape input: [batch, stocks, seq_len, features] -> [batch*stocks, seq_len, features]
         batch_size, num_stocks, seq_len, features = x_enc.shape

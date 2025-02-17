@@ -3,53 +3,71 @@ import torch
 import os
 import glob
 import random
+import pandas as pd
 from typing import List, Optional
+
+# Get workspace root (parent directory of myTransformer)
+WORKSPACE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASEDIR = os.path.join(WORKSPACE_ROOT, "myTransformer")
 
 @dataclass
 class StockPredictionConfig:
     # Data Parameters
-    data_dir: str = "./dataset"
+    data_dir: str = os.path.join(WORKSPACE_ROOT, "dataset")  # Use workspace root for dataset
     stocks: Optional[List[str]] = None  # If None, will use all stocks in CSV
+    #default_stocks: List[str] = field(
+    #       default_factory=lambda: ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
+    #)
     default_stocks: List[str] = field(
-        default_factory=lambda: ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
+        default_factory=lambda: []
     )
     features: List[str] = field(
         default_factory=lambda: ['volume', 'close', 'transactions']
     )
-    train_size: Optional[int] = None  # Number of files to use for training (None means use all remaining files)
+    train_size: Optional[int] = 5  # Number of files to use for training (None means use all remaining files)
     test_size: int = 1   # Number of files to use for testing
-    val_size: int = 1    # Number of files to use for validation
+    val_size: int = 2    # Number of files to use for validation
+    val_stocks: List[str] = field(
+        default_factory=lambda: ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
+    )
     
     # Sequence Parameters
-    seq_len: int = 60  # input sequence length (1 hour of minute data)
-    pred_len: int = 60  # prediction sequence length (match with sequence length)
-    label_len: int = 60  # length of labels for teacher forcing (match with sequence length)
-    scale: bool = True  # whether to scale data
+    seq_len: int = 60      # 1 hour lookback
+    pred_len: int = 15     # Predict next 15 minutes
+    label_len: int = 30    # Label length for teacher forcing
+    scale: bool = True
     
     # Model Parameters
-    model: str = 'iTransformer'  # model name
-    d_model: int = 512  # dimension of model
-    n_heads: int = 8  # number of heads in multi-head attention
-    e_layers: int = 2  # number of encoder layers
-    d_ff: int = 2048  # dimension of fcn in transformer
-    dropout: float = 0.1  # dropout rate
-    embed: str = 'fixed'  # embedding type
-    activation: str = 'gelu'  # activation function
-    output_attention: bool = False  # whether to output attention weights
-    use_norm: bool = True  # whether to use data normalization
+    model: str = 'iTransformer'
+    d_model: int = 512     # Dimension of model
+    n_heads: int = 8       # Number of attention heads
+    e_layers: int = 4      # Increased number of encoder layers
+    d_ff: int = 2048      # Dimension of FCN
+    dropout: float = 0.2   # Increased dropout
+    embed: str = 'fixed'
+    activation: str = 'gelu'
+    output_attention: bool = True  # Enable attention output for analysis
+    use_norm: bool = True
     
     # Training Parameters
-    batch_size: int = 32
-    learning_rate: float = 1e-3  # Increased initial learning rate
-    train_epochs: int = 10
-    patience: int = 3  # early stopping patience
+    batch_size: int = 64
+    learning_rate: float = 5e-4    # Reduced learning rate
+    train_epochs: int = 20         # Increased epochs
+    patience: int = 5              # Added early stopping
+    
+    # Loss Function Parameters
+    loss_type: str = "adaptive"    # Use our new adaptive loss
+    loss_kwargs: dict = field(default_factory=lambda: {
+        "alpha": 0.3,              # Weight for relative error component
+        "beta": 2.0                # Exponential scaling for MSE
+    })
     
     # Learning Rate Scheduler Parameters
-    lr_scheduler: str = 'cosine'  # Type of scheduler: 'cosine' or 'reduce_on_plateau'
-    lr_decay_factor: float = 0.1  # Factor to reduce learning rate by
-    lr_patience: int = 2  # Epochs to wait before reducing LR
-    min_lr: float = 1e-5  # Minimum learning rate
-    warmup_epochs: int = 1  # Number of epochs for warmup
+    lr_scheduler: str = 'cosine'
+    lr_decay_factor: float = 0.1
+    lr_patience: int = 3           # Adjusted LR patience
+    min_lr: float = 1e-5
+    warmup_epochs: int = 2         # Increased warmup period
     
     # Device Parameters
     use_gpu: bool = True  # This will now include both CUDA and MPS
@@ -58,7 +76,10 @@ class StockPredictionConfig:
     device_ids: Optional[List[int]] = field(default=None)
     
     # Data Paths
-    checkpoints: str = "./checkpoints/"
+    checkpoints_dir: str = os.path.join(BASEDIR, "checkpoints/")
+    logs_dir: str = os.path.join(BASEDIR, "logs/")
+    figures_dir: str = os.path.join(BASEDIR, "figures/")
+    embeddings_dir: str = os.path.join(BASEDIR, "embeddings/")  # Add embeddings directory
     
     # Model Specific
     factor: int = 5  # probsparse attn factor
@@ -102,14 +123,30 @@ class StockPredictionConfig:
         
         print(f"Data split - Train: {len(self.train_files)} files, Validation: {len(self.val_files)} files, Test: {len(self.test_files)} files")
         
-        # Use default stocks if none specified
-        if self.stocks is None:
-            self.stocks = self.default_stocks.copy()  # Make a copy to be safe
+        # Handle stock selection
+        if self.stocks is None or len(self.stocks) == 0:  # Handle both None and empty list
+            # Read first file to get available stocks
+            df = pd.read_csv(csv_files[0])
+            print(f"\nDebug - Ticker column info:")
+            print(f"Ticker value counts:\n{df['ticker'].value_counts().head()}")
+            print(f"Ticker dtype: {df['ticker'].dtype}")
+            
+            # Convert tickers to strings and remove any NaN values
+            tickers = df['ticker'].astype(str).unique()
+            # Filter out any 'nan' strings that might have come from NaN values
+            tickers = [t for t in tickers if t.lower() != 'nan']
+            self.stocks = sorted(tickers)
+            print(f"\nUsing all available stocks: {self.stocks}")
+        else:
+            self.stocks = self.stocks.copy()  # Make a copy to be safe
             
         # Auto-detect best available device
         if self.use_gpu:
             if torch.cuda.is_available():
-                print("CUDA GPU available")
+                if torch.cuda.get_device_properties(0).is_cuda:
+                    print("NVIDIA CUDA GPU available")
+                elif torch.cuda.get_device_properties(0).platform == "ROCm":
+                    print("AMD ROCm GPU available") 
             elif torch.backends.mps.is_available():
                 print("Apple Silicon MPS available")
             else:
