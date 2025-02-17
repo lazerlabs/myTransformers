@@ -13,7 +13,7 @@ BASEDIR = os.path.join(WORKSPACE_ROOT, "myTransformer")
 @dataclass
 class StockPredictionConfig:
     # Data Parameters
-    data_dir: str = os.path.join(BASEDIR, "dataset/extended")  # Use workspace root for dataset
+    data_dir: str = os.path.join(BASEDIR, "dataset")  # Use workspace root for dataset
     stocks: Optional[List[str]] = None  # If None, will use all stocks in CSV
     #default_stocks: List[str] = field(
     #       default_factory=lambda: ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
@@ -22,9 +22,8 @@ class StockPredictionConfig:
         default_factory=lambda: ['volume', 'close', 'transactions']
     )
     train_size: Optional[int] = 1  # Number of files to use for training (None means use all remaining files)
-    test_size: int = 0   # Number of files to use for testing
-    #val_size: int = 2    # Number of files to use for validation
-    val_size: int = 1    # Number of files to use for validation
+    test_size: int = 2   # Number of files to use for testing
+    val_size: int = 2    # Number of files to use for validation
     val_stocks: List[str] = field(
         default_factory=lambda: ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
     )

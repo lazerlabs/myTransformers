@@ -69,13 +69,16 @@ class Exp_Stock_Forecast():
         """
         data_path = self.args.train_data_path if flag == 'train' else self.args.test_data_path
         
+        # Use all stocks for training/testing, but only val_stocks for validation
+        tickers = None if flag == 'train' else self.args.val_stocks
+        
         data_set, data_loader = create_dataloader(
             file_path=data_path,
             batch_size=self.args.batch_size,
             seq_len=self.args.seq_len,
             pred_len=self.args.pred_len,
             scale=self.args.scale,
-            tickers=['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
+            tickers=tickers  # None for training (all stocks), val_stocks for validation
         )
         return data_set, data_loader
 
