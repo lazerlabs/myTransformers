@@ -18,9 +18,6 @@ class StockPredictionConfig:
     #default_stocks: List[str] = field(
     #       default_factory=lambda: ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
     #)
-    #default_stocks: List[str] = field(
-    #    default_factory=lambda: []
-    #)
     features: List[str] = field(
         default_factory=lambda: ['volume', 'close', 'transactions']
     )
