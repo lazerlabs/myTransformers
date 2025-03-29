@@ -131,103 +131,103 @@ class StockVisualizer:
         plt.tight_layout()
         plt.savefig(os.path.join(self.save_dir, 'feature_importance.png'))
         plt.close()
-        
-    def plot_all_stocks_predictions(self, true_values, predictions, dataset, feature_idx=1, n_samples=100):
+
+    def plot_all_stocks_predictions(self, true_values, predictions, dataset, feature_idx=1, n_samples_to_plot=1):
         """
-        Plot predictions for all stocks for a specific feature
-        
+        Plot predictions vs true values for a specific feature across multiple stocks
+        from a few sample sequences.
+
         Args:
-            true_values: shape [batch, stocks, pred_len, features]
-            predictions: shape [batch, stocks, pred_len, features]
-            dataset: StockDataset instance for denormalization
-            feature_idx: which feature to plot (0: volume, 1: close, 2: transactions)
-            n_samples: number of points to plot
+            true_values (np.ndarray): Ground truth values. Shape: [total_sequences, pred_len, features]
+            predictions (np.ndarray): Predicted values. Shape: [total_sequences, pred_len, features]
+            dataset (StockDataset): The dataset instance (used for denormalization).
+            feature_idx (int): Index of the feature to plot (e.g., 1 for 'close').
+            n_samples_to_plot (int): Number of sample sequences to plot from the results.
         """
-        print("\nDEBUG - Starting visualization:")
-        print(f"Dataset timestamps length: {len(dataset.timestamps)}")
-        print(f"Dataset data shape: {dataset.data.shape}")
-        print(f"True values shape: {true_values.shape}")
-        print(f"Predictions shape: {predictions.shape}")
-        
-        stocks = ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
-        num_stocks = len(stocks)
-        
+        print("\n--- Starting Visualization ---")
+        if true_values.shape[0] == 0 or predictions.shape[0] == 0:
+             print("Warning: Cannot plot predictions, true_values or predictions array is empty.")
+             return
+        if not hasattr(dataset, 'denormalize'):
+             print("Warning: Dataset object does not have a 'denormalize' method. Cannot plot.")
+             return
+        if feature_idx >= len(self.feature_names):
+             print(f"Warning: feature_idx {feature_idx} is out of bounds for features {self.feature_names}. Skipping plot.")
+             return
+
+        # Determine number of stocks based on how data was likely structured before concatenation
+        # This is an assumption - might need adjustment if batch/stock structure changes
+        # A better approach would be to pass stock identifiers alongside predictions/trues
+        num_total_sequences = true_values.shape[0]
+        # Heuristic: Assume data was [batch, stocks, pred, feats] -> [batch*stocks, pred, feats]
+        # Let's just plot N samples without assuming stock structure for now.
+        num_plots = min(n_samples_to_plot, num_total_sequences)
+        if num_plots == 0:
+             print("No samples to plot.")
+             return
+
+        print(f"Plotting {num_plots} sample sequences for feature '{self.feature_names[feature_idx]}'")
+
         # Create subplot grid
-        fig, axes = plt.subplots(num_stocks, 1, figsize=(15, 5*num_stocks))
-        
-        # Calculate indices for the last sequence
-        total_len = dataset.seq_len + dataset.pred_len
-        start_idx = max(0, len(dataset.timestamps) - total_len)
-        print(f"\nSequence info:")
-        print(f"Total length needed: {total_len}")
-        print(f"Start index: {start_idx}")
-        
-        # Get timestamps for the entire sequence
-        timestamps = dataset.timestamps[start_idx:start_idx + total_len]
-        print(f"Timestamps array length: {len(timestamps)}")
-        if len(timestamps) > 0:
-            print(f"First timestamp: {timestamps[0]}")
-            print(f"Last timestamp: {timestamps[-1]}")
-        
-        # For each stock
-        for idx, (stock, ax) in enumerate(zip(stocks, axes)):
-            print(f"\nProcessing stock {stock}:")
-            
-            # Get input sequence and true future values
-            data_start_idx = max(0, dataset.data.shape[1] - total_len)  # Use data shape instead of timestamps
-            input_seq = dataset.data[idx, data_start_idx:data_start_idx + dataset.seq_len, feature_idx]
-            true_future = dataset.data[idx, (data_start_idx + dataset.seq_len):(data_start_idx + total_len), feature_idx]
-            
-            print(f"Data start index: {data_start_idx}")
-            print(f"Input sequence shape: {input_seq.shape}")
-            print(f"True future shape: {true_future.shape} (should be {dataset.pred_len} for 2 hours)")
-            
-            # Get the predictions for future values
-            pred_future = predictions[0, idx, :, feature_idx]
-            print(f"Prediction future shape: {pred_future.shape} (should be {dataset.pred_len} for 2 hours)")
-            
-            # Get corresponding timestamps for this range
-            time_start_idx = max(0, len(dataset.timestamps) - dataset.data.shape[1])  # Align with data
-            timestamps = dataset.timestamps[time_start_idx + data_start_idx:time_start_idx + data_start_idx + total_len]
-            
-            # Combine sequences
-            true_seq = np.concatenate([input_seq, true_future])
-            pred_seq = np.concatenate([input_seq, pred_future])
-            
-            print(f"Final sequence shapes - True: {true_seq.shape}, Pred: {pred_seq.shape}")
-            print(f"Timestamps length: {len(timestamps)} (should be {total_len} for 3 hours total)")
-            
-            # Ensure all arrays have matching lengths
-            min_len = min(len(timestamps), len(true_seq), len(pred_seq))
-            timestamps = timestamps[:min_len]
-            true_seq = true_seq[:min_len]
-            pred_seq = pred_seq[:min_len]
-            
-            # Denormalize if needed
-            true_seq = dataset.denormalize(true_seq, idx, feature_idx=feature_idx)
-            pred_seq = dataset.denormalize(pred_seq, idx, feature_idx=feature_idx)
-            
-            # Plot with timestamps
-            ax.plot(timestamps, true_seq, 
-                    label='True', marker='o', markersize=2)
-            ax.plot(timestamps, pred_seq, 
-                    label='Predicted', marker='o', markersize=2)
-            
-            # Add vertical line to separate input from prediction
-            split_time = timestamps[dataset.seq_len - 1]
-            ax.axvline(x=split_time, color='r', linestyle='--', alpha=0.5)
-            ax.text(split_time, ax.get_ylim()[0], 'Prediction Start', 
-                   rotation=90, verticalalignment='bottom')
-            
-            ax.set_title(f'{stock}')
-            ax.set_xlabel('Time')
+        # Adjust layout dynamically if needed, for now just plot vertically
+        fig, axes = plt.subplots(num_plots, 1, figsize=(15, 5 * num_plots), squeeze=False) # Ensure axes is always 2D
+
+        # Select random samples to plot
+        sample_indices = np.random.choice(num_total_sequences, num_plots, replace=False)
+
+        for plot_idx, seq_idx in enumerate(sample_indices):
+            ax = axes[plot_idx, 0] # Access subplot correctly
+
+            # Get true and predicted sequences for the chosen sample and feature
+            true_seq = true_values[seq_idx, :, feature_idx]
+            pred_seq = predictions[seq_idx, :, feature_idx]
+
+            # Denormalize using the dataset's global stats
+            # Note: We only denormalize the specific feature being plotted
+            # Create dummy arrays with correct feature dimension for denormalize method
+            num_features = len(self.feature_names)
+            pred_len = true_seq.shape[0]
+
+            true_full_features = np.zeros((pred_len, num_features))
+            pred_full_features = np.zeros((pred_len, num_features))
+            true_full_features[:, feature_idx] = true_seq
+            pred_full_features[:, feature_idx] = pred_seq
+
+            try:
+                true_denorm_full = dataset.denormalize(true_full_features)
+                pred_denorm_full = dataset.denormalize(pred_full_features)
+                # Extract the denormalized feature we care about
+                true_denorm = true_denorm_full[:, feature_idx]
+                pred_denorm = pred_denorm_full[:, feature_idx]
+            except Exception as e:
+                 print(f"Warning: Failed to denormalize data for plot {plot_idx} (seq_idx {seq_idx}): {e}. Plotting normalized data.")
+                 true_denorm = true_seq
+                 pred_denorm = pred_seq
+
+
+            # --- Plotting ---
+            # Use a simple numerical index for x-axis as timestamps are not stored per sequence
+            time_steps = np.arange(len(true_denorm))
+            x_label = "Time Step in Prediction Window"
+
+            ax.plot(time_steps, true_denorm, label='True', marker='o', markersize=3, linestyle='-')
+            ax.plot(time_steps, pred_denorm, label='Predicted', marker='x', markersize=4, linestyle='--')
+
+            ax.set_title(f'Sample Sequence {seq_idx} - Feature: {self.feature_names[feature_idx]}')
+            ax.set_xlabel(x_label)
             ax.set_ylabel('Value')
             ax.legend()
             ax.grid(True)
-            
-            # Rotate x-axis labels for better readability
-            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(self.save_dir, f'all_stocks_predictions_{self.feature_names[feature_idx]}.png'))
-        plt.close() 
+
+            # Optional: Rotate x-axis labels if using timestamps later
+            # plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust layout to prevent title overlap
+        fig.suptitle('Sample Predictions vs True Values', fontsize=16)
+        try:
+            save_path = os.path.join(self.save_dir, f'sample_predictions_{self.feature_names[feature_idx]}.png')
+            plt.savefig(save_path)
+            print(f"Saved sample prediction plot to {save_path}")
+        except Exception as e:
+            print(f"Error saving plot: {e}")
+        plt.close(fig)

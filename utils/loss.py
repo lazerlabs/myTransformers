@@ -17,6 +17,15 @@ class StockPredictionLoss:
         return F.mse_loss(y_pred, y_true)
 
     @staticmethod
+    def mae_loss(y_pred, y_true, mask=None):
+        """
+        Squared Mean Absolute Error: (MAE)^2
+        Gives more importance to small errors compared to MSE
+        """
+        mae = torch.abs(y_pred - y_true).mean()
+        return mae
+
+    @staticmethod
     def squared_mae_loss(y_pred, y_true, mask=None):
         """
         Squared Mean Absolute Error: (MAE)^2

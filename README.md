@@ -23,15 +23,15 @@ The model processes the following features for each stock:
 - Volume
 - Close price
 - Number of transactions
-- Features are normalized independently for each stock in each file using z-score normalization
+- Features are normalized using global mean/std statistics calculated **only** from the training dataset files (Z-score normalization).
 
 ### Data Processing
 - Each file is processed independently
 - Stocks are handled independently within each file
 - Each stock's time series contributes multiple sequences based on sliding windows
 - Minimum required length for a stock's data is sequence_length + prediction_length
-- Statistics (mean, std) are calculated per stock per file for normalization
-- Missing values are handled through forward filling
+- Global statistics (mean, std) are calculated across all training files and applied consistently to train, validation, and test sets.
+- Missing values are handled by skipping sequences containing NaNs during data loading.
 
 ### Data Loading Strategy
 - Files are processed one at a time to minimize memory usage
@@ -42,7 +42,7 @@ The model processes the following features for each stock:
 
 ### Data Splitting
 - Split level: File-based splitting
-- Split strategy: Random shuffle of files, then sequential assignment
+- Split strategy: Files are sorted chronologically, then assigned sequentially (earliest to train, latest to test).
 - Default split sizes:
   - Test set: 1 file
   - Validation set: 2 files
@@ -56,13 +56,13 @@ The model processes the following features for each stock:
   - Each valid stock contributes multiple sequences based on its length
 
 ### Data Processing Details
-- Per-stock normalization:
-  - Mean and standard deviation calculated independently for each stock within each file
-  - Z-score normalization applied to features
+- **Global Normalization**:
+  - Mean and standard deviation are calculated across **all training files** for each feature.
+  - These global statistics are then applied using Z-score normalization to the training, validation, and test sets.
 - Sequence generation:
-  - Input sequence length: 60 minutes
+  - Input sequence length: 60 minutes (configurable)
   - Prediction length: 15 minutes (configurable)
-  - Label length: 30 minutes (for teacher forcing)
+  # - Label length: 30 minutes (for teacher forcing) # Removed - Not applicable to encoder-only model
 - Features processed:
   - Volume
   - Close price
@@ -73,8 +73,8 @@ The model processes the following features for each stock:
 ### Tokenization and Input Processing
 - Each feature (volume, close, transactions) is treated as a token
 - Input shape: [Batch, Stocks, Time, Features]
-- Features are normalized per stock using z-score normalization
-- Temporal information is encoded in the feature dimension
+- Features are normalized using global training set statistics (Z-score).
+- Temporal information is encoded using time features (see below) and positional encodings.
 
 ### Embedding Layer
 The embedding system (`DataEmbedding_inverted`) combines:
@@ -119,7 +119,7 @@ Multiple loss functions available through `StockPredictionLoss`:
 ### Default Parameters
 - Sequence length: 60 (1 hour of minute data)
 - Prediction length: 15 (predict next 15 minutes)
-- Label length: 30 (for teacher forcing)
+# - Label length: 30 (for teacher forcing) # Removed - Not applicable
 - Batch size: 64
 - Learning rate: 5e-4
 - Training epochs: 20
@@ -142,15 +142,12 @@ Multiple loss functions available through `StockPredictionLoss`:
 
 ### Training Process
 - Adam optimizer with learning rate scheduling
-- Loss function options:
-  - Mean Squared Error (MSE)
-  - Squared MAE
-  - Directional loss (combines base loss with directional prediction, weight: 0.3)
+- Loss function is configurable via `configs.py` (see `loss_type` and `loss_kwargs`). Default is "adaptive". See `utils/loss.py` for all options.
 - Early stopping based on validation loss
-- Batch size: 32
+- Batch size: 32 (Note: `configs.py` default is 64)
 - Sequence length: 60 minutes
 - Prediction length: 60 minutes
-- Label length: 60 minutes (for teacher forcing
+# - Label length: 60 minutes (for teacher forcing # Removed - Not applicable
 
 ### Evaluation Metrics
 - Mean Absolute Error (MAE)
@@ -173,7 +170,7 @@ The project includes various visualization tools:
   - Model dimension: 256
   - Sequence length: 60 minutes
   - Prediction length: 60 minutes
-  - Label length: 60 minutes
+  # - Label length: 60 minutes # Removed - Not applicable
   - Directional loss weight: 0.3
 - Includes embedding visualization
 - More verbose logging
@@ -316,10 +313,10 @@ c) **Transformer Processing**:
 Yes, there are several data manipulations:
 
 1. **Normalization**:
-- Z-score normalization per feature and stock
-- Stores mean and std for later denormalization
+- Z-score normalization applied using global mean/std calculated **only** from the training dataset files.
+- These fixed stats are applied to train, validation, and test sets.
 
-```89:95:myTransformer/data_provider/data_loader.py
+``` (Code snippet reference might be outdated due to changes)
             stock_df = df[df['ticker'] == stock]
             
             # Interpolate missing values if any
@@ -340,10 +337,10 @@ Yes, there are several data manipulations:
 
 
 3. **Time Feature Engineering**:
-- Extracts hour and minute from timestamps
-- Creates time features for temporal information
+- Extracts minute-of-hour, hour-of-day (cyclical sin/cos), and day-of-week (cyclical sin/cos) from timestamps.
+- Creates `x_mark` and `y_mark` tensors with these features.
 
-```54:67:myTransformer/data_provider/data_loader.py
+``` (Code snippet reference might be outdated due to changes)
             # Store timestamps for visualization
             self.timestamps = df['window_start'].unique()
             # Convert timestamps to hour of day and add as time features
@@ -361,12 +358,12 @@ Yes, there are several data manipulations:
 ```
 
 
+
 ### 3. Loss Function
 
-Looking through the code, I don't actually see an explicit loss function defined. According to the README, it should be using Mean Squared Error (MSE), but this isn't implemented in the shared code. This would need to be defined in the training script.
+The loss function is dynamically selected based on the `loss_type` parameter in `configs.py`, using the `get_loss_function` utility in `utils/loss.py`. The default is currently set to `"adaptive"`. The training script (`exp_stock_forecasting.py`) now correctly uses this configured loss.
 
 ### 4. Network Topology
-
 Current architecture:
 - **Input Dimension**: Variable (based on number of features)
 - **Embedding**: 

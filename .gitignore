@@ -12,6 +12,7 @@ include/
 local/
 
 dataset/extended/
+embeddings/
 
 *.pyc
 *.pyo

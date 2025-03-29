@@ -19,42 +19,7 @@ def save_embeddings(embeddings, file_path):
         json.dump(embeddings_dict, f, indent=2)
     print(f"Embeddings saved to {file_path}")
 
-def train_model(model, train_loader, optimizer, criterion, num_epochs):
-    model.train()
-    for epoch in range(num_epochs):
-        running_loss = 0.0
-        pbar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}')
-        
-        for i, batch_data in enumerate(pbar):
-            # Properly unpack the batch data
-            batch_x, batch_x_mark, batch_y, batch_y_mark = batch_data
-            
-            # Move data to the appropriate device
-            batch_x = batch_x.float().to(model.device)
-            batch_x_mark = batch_x_mark.float().to(model.device)
-            batch_y = batch_y.float().to(model.device)
-            batch_y_mark = batch_y_mark.float().to(model.device)
-            
-            optimizer.zero_grad()
-            outputs = model(batch_x, batch_x_mark, batch_x, batch_x_mark)
-            loss = criterion(outputs, batch_y)
-            loss.backward()
-            optimizer.step()
-            
-            # Update running loss
-            running_loss += loss.item()
-            
-            # Update progress bar with current loss
-            pbar.set_postfix({
-                'samples': (i + 1) * batch_x.size(0),
-                'loss': f'{running_loss/(i+1):.4f}'
-            })
-        
-        # Print epoch summary
-        avg_loss = running_loss / len(train_loader)
-        print(f'\nEpoch {epoch+1}/{num_epochs}:')
-        print(f'Average Loss: {avg_loss:.4f}')
-        print(f'Total Samples: {len(train_loader.dataset)}')
+# Removed unused train_model function
 
 def test_training():
     # Modified config for quick test
@@ -63,18 +28,24 @@ def test_training():
     # Override specific parameters for testing
     config.seq_len = 60     # 1 hour of minute-by-minute data
     config.pred_len = 15    # Changed from 60 to 15 to match README
-    config.label_len = 30   # Changed from 60 to 30 to match README
-    config.batch_size = 32   
+    # config.label_len = 30   # Removed - label_len is no longer used
+    config.batch_size = 32
     config.d_model = 512    # Changed from 256 to 512 to match README
     config.n_heads = 8      # Changed from 16 to 8 to match README
-    config.e_layers = 4     
-    config.dropout = 0.2    
-    config.test_size = 1    
-    
+    config.e_layers = 4
+    config.dropout = 0.2
+    config.test_size = 5
+
+    # --- Settings for Quick Test Run ---
+    config.train_epochs = 1            # Run only 1 epoch
+    config.max_train_iterations = 10    # Run only 1000 batches within that epoch
+    print(f"--- QUICK TEST RUN: Limiting to {config.train_epochs} epoch(s) and {config.max_train_iterations} iterations ---")
+    # --- End Quick Test Run Settings ---
+
     # Add loss function configuration
     config.loss_type = "directional"
     config.loss_kwargs = {
-        "base_loss": "squared_mae",
+        "base_loss": "mae",
         "direction_weight": 0.3
     }
     

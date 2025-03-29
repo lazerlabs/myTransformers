@@ -49,9 +49,10 @@ class StockPredictionConfig:
     # Training Parameters
     batch_size: int = 64
     learning_rate: float = 5e-4    # Reduced learning rate
-    train_epochs: int = 20         # Increased epochs
-    patience: int = 5              # Added early stopping
-    
+    train_epochs: int = 20         # Number of training epochs
+    patience: int = 5              # Early stopping patience
+    max_train_iterations: Optional[int] = None # Limit iterations per epoch (for testing)
+
     # Loss Function Parameters
     loss_type: str = "adaptive"    # Use our new adaptive loss
     loss_kwargs: dict = field(default_factory=lambda: {
@@ -88,10 +89,15 @@ class StockPredictionConfig:
     train_files: List[str] = field(default_factory=list)
     test_files: List[str] = field(default_factory=list)
     
+    # How often to run test predictions during training (0 to disable)
+    test_interval: int = 0  # Will test every 1 epochs
+    test_iteration_interval: int = 5000  # Will also test every 5000 iterations (0 to disable)
+    
     def __post_init__(self):
-        # Get all available CSV files
+        # Get all available CSV files and ensure they are sorted chronologically
         csv_files = sorted(glob.glob(os.path.join(self.data_dir, "*.csv")))
-        random.shuffle(csv_files)
+        # random.shuffle(csv_files) # Removed shuffle to maintain chronological order
+        print(f"Found {len(csv_files)} data files, sorted chronologically.")
         if not csv_files:
             raise ValueError(f"No CSV files found in {self.data_dir}")
         

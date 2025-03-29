@@ -28,14 +28,14 @@ def main():
         "direction_weight": 0.8  # Increase from 0.3 to give more weight to directional changes
     }
     
-    # Create experiment setting name
-    setting = '{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_df{}_eb{}_{}_{}_{}'.format(
+    # Create experiment setting name (Removed label_len 'll{}')
+    setting = '{}_{}_{}_ft{}_sl{}_pl{}_dm{}_nh{}_el{}_df{}_eb{}_{}_{}_{}'.format(
         config.model,
-        config.train_data_path.split('/')[-1].replace('.csv', ''),
+        config.train_data_path.split('/')[-1].replace('.csv', ''), # Note: train_data_path only gives first file
         config.features,
         config.enc_in,
         config.seq_len,
-        config.label_len,
+        # config.label_len, # Removed
         config.pred_len,
         config.d_model,
         config.n_heads,
