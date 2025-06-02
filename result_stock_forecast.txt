@@ -1,0 +1,6 @@
+iTransformer_2024-11-25.csv_['volume', 'close', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:1526530048.0, mae:4641.61865234375, rmse:39070.83203125, mape:75.8992919921875, mspe:778235.75
+
+iTransformer_2024-11-25.csv_['volume', 'close', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:1526530048.0, mae:4641.61865234375, rmse:39070.83203125, mape:75.8992919921875, mspe:778235.75
+

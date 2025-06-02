@@ -545,16 +545,13 @@ class Exp_Stock_Forecast():
                  input_seq = batch_x.detach().cpu().numpy()
                  input_time = batch_x_mark.detach().cpu().numpy()
 
-                 # **DENORMALIZATION**: Handle denormalization like in original iTransformer
+                 # **DENORMALIZATION**: Handle denormalization using StockDataset's denormalize method
                  if test and data.scale and self.args.inverse:
-                     # Denormalize for better visualization and metrics
-                     shape = pred.shape
-                     pred = data.inverse_transform(pred.squeeze(0)).reshape(shape)
-                     true = data.inverse_transform(true.squeeze(0)).reshape(shape)
-                     
-                     # Also denormalize input for visualization
-                     input_shape = input_seq.shape
-                     input_seq = data.inverse_transform(input_seq.squeeze(0)).reshape(input_shape)
+                     # Denormalize for better visualization and metrics (handle batch dimension properly)
+                     for batch_idx in range(pred.shape[0]):
+                         pred[batch_idx] = data.denormalize(pred[batch_idx])
+                         true[batch_idx] = data.denormalize(true[batch_idx])
+                         input_seq[batch_idx] = data.denormalize(input_seq[batch_idx])
 
                  preds.append(pred)
                  trues.append(true)
@@ -597,7 +594,7 @@ class Exp_Stock_Forecast():
             print('test shape:', preds.shape, trues.shape)
 
             # **IMPORT METRIC FUNCTION**: Use the same metric function as original iTransformer
-            from iTransformer.utils.metrics import metric
+            from utils.metrics import metric
 
             # **CALCULATE ALL METRICS**: Like original iTransformer
             mae, mse, rmse, mape, mspe = metric(preds, trues)
