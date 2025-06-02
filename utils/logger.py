@@ -66,12 +66,21 @@ class Logger:
             f"Learning Rate: {lr:.6f}"
         )
     
-    def log_prediction(self, mae, mse, rmse):
+    def log_prediction(self, mae, mse, rmse, mape=None, mspe=None):
         """Log final prediction metrics"""
         self.metrics['mae'] = mae
         self.metrics['mse'] = mse
         self.metrics['rmse'] = rmse
         
-        self.logger.info(
-            f"Final Metrics - MAE: {mae:.6f}, MSE: {mse:.6f}, RMSE: {rmse:.6f}"
-        ) 
+        if mape is not None:
+            self.metrics['mape'] = mape
+        if mspe is not None:
+            self.metrics['mspe'] = mspe
+        
+        log_message = f"Final Metrics - MAE: {mae:.6f}, MSE: {mse:.6f}, RMSE: {rmse:.6f}"
+        if mape is not None:
+            log_message += f", MAPE: {mape:.6f}"
+        if mspe is not None:
+            log_message += f", MSPE: {mspe:.6f}"
+            
+        self.logger.info(log_message) 

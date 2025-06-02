@@ -4,17 +4,25 @@ import math
 
 class DataEmbedding_inverted(nn.Module):
     """
-    Enhanced Data Embedding for stock market data with positional encoding
+    iTransformer Data Embedding for stock market data with positional encoding
     """
     def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1, max_len=60):
         super(DataEmbedding_inverted, self).__init__()
-        self.value_embedding = nn.Linear(c_in, d_model)
-        self.temporal_embedding = nn.Linear(c_in, d_model)
-        self.feature_embedding = nn.Embedding(3, d_model)  # 3 features: close, volume, transactions
+        # For iTransformer: we transform from seq_len to d_model for each feature
+        # So the linear layer should map from sequence_length to d_model dimension
+        # But we need to be flexible about sequence lengths
+        self.c_in = c_in  # Number of features
+        self.d_model = d_model
         
-        # Add positional encoding
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        # Use adaptive pooling or a more flexible approach
+        # We'll use a different strategy: project each feature's time series separately
+        self.feature_projections = nn.ModuleList([
+            nn.Linear(max_len, d_model) for _ in range(c_in)
+        ])
+        
+        # Add positional encoding for features (not timesteps)
+        pe = torch.zeros(c_in, d_model)
+        position = torch.arange(0, c_in, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
@@ -26,25 +34,49 @@ class DataEmbedding_inverted(nn.Module):
         # Add layer normalization
         self.layer_norm = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(p=dropout)
+        
+        # Store max_len for adaptive handling
+        self.max_len = max_len
 
     def forward(self, x, x_mark):
-        # Compute temporal gradients with scale normalization
-        temporal_grad = torch.gradient(x, dim=1)[0]
-        grad_scale = torch.std(temporal_grad, dim=1, keepdim=True) + 1e-5
-        temporal_grad = temporal_grad / grad_scale
-        temporal_info = self.temporal_embedding(temporal_grad.permute(0, 2, 1))
+        # iTransformer treats features as tokens, not timesteps
+        # Input x shape: [batch, seq_len, features]
+        batch_size, seq_len, features = x.shape
         
-        # Original value embedding
-        x = x.permute(0, 2, 1)
-        value_embed = self.value_embedding(x)
+        # Handle variable sequence lengths
+        if seq_len != self.max_len:
+            # Use adaptive pooling to handle variable sequence lengths
+            x_resampled = torch.zeros(batch_size, self.max_len, features, device=x.device, dtype=x.dtype)
+            for i in range(features):
+                # Interpolate each feature's time series to max_len
+                feature_series = x[:, :, i]  # [batch, seq_len]
+                # Use interpolation to resize to max_len
+                feature_series = torch.nn.functional.interpolate(
+                    feature_series.unsqueeze(1),  # [batch, 1, seq_len]
+                    size=self.max_len,
+                    mode='linear',
+                    align_corners=False
+                ).squeeze(1)  # [batch, max_len]
+                x_resampled[:, :, i] = feature_series
+            x = x_resampled
         
-        # Feature embedding with learned importance
-        feature_indices = torch.arange(x.size(1), device=x.device)
-        feature_embed = self.feature_embedding(feature_indices)
+        # Now x has shape [batch, max_len, features]
+        # Permute to [batch, features, max_len] for feature-wise processing
+        x = x.permute(0, 2, 1)  # [batch, features, max_len]
         
-        # Add scaled positional encoding
-        x = value_embed + feature_embed.unsqueeze(0) + temporal_info + self.pos_scale * self.pe[:, :x.size(1)]
+        # Apply feature-wise projections
+        feature_embeddings = []
+        for i in range(features):
+            feature_ts = x[:, i, :]  # [batch, max_len]
+            feature_emb = self.feature_projections[i](feature_ts)  # [batch, d_model]
+            feature_embeddings.append(feature_emb)
+        
+        # Stack to get [batch, features, d_model]
+        value_embed = torch.stack(feature_embeddings, dim=1)
+        
+        # Add positional encoding for features
+        x = value_embed + self.pos_scale * self.pe[:, :features, :]
         
         # Apply layer normalization and dropout
         x = self.layer_norm(x)
-        return self.dropout(x) 
+        return self.dropout(x)

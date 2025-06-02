@@ -8,16 +8,28 @@ from typing import List, Optional
 
 # Get workspace root (parent directory of myTransformer)
 WORKSPACE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BASEDIR = os.path.join(WORKSPACE_ROOT, "myTransformer")
+BASEDIR = os.path.join(WORKSPACE_ROOT, "myTransformers")
+
+def get_config_defaults():
+    """Get config defaults without file path initialization for use in CLI decorators."""
+    # Create a temporary config instance with file init disabled
+    import dataclasses
+    
+    # Get the default values from the dataclass fields
+    defaults = {}
+    for field in dataclasses.fields(StockPredictionConfig):
+        if field.default != dataclasses.MISSING:
+            defaults[field.name] = field.default
+        elif field.default_factory != dataclasses.MISSING:
+            defaults[field.name] = field.default_factory()
+    
+    return defaults
 
 @dataclass
 class StockPredictionConfig:
     # Data Parameters
-    data_dir: str = os.path.join(BASEDIR, "dataset")  # Use workspace root for dataset
+    data_dir: str = "dataset"  # Use local dataset directory
     stocks: Optional[List[str]] = None  # If None, will use all stocks in CSV
-    #default_stocks: List[str] = field(
-    #       default_factory=lambda: ['AAPL', 'MSFT', 'JPM', 'JNJ', 'AXP']
-    #)
     features: List[str] = field(
         default_factory=lambda: ['volume', 'close', 'transactions']
     )
@@ -33,6 +45,12 @@ class StockPredictionConfig:
     pred_len: int = 15     # Predict next 15 minutes
     label_len: int = 30    # Label length for teacher forcing
     scale: bool = True
+    inverse: bool = True   # Whether to denormalize predictions for metrics and visualization
+    
+    # Dataset Mode Parameters
+    mode: str = 'full_day'  # 'sliding_window' or 'full_day'
+    interpolate_max_missing: int = 3
+    max_seq_len: int = 2000  # Maximum sequence length for embedding layer (for full_day mode)
     
     # Model Parameters
     model: str = 'iTransformer'
@@ -46,6 +64,9 @@ class StockPredictionConfig:
     output_attention: bool = False
     use_norm: bool = True
     
+    # Inference Parameters
+    temperature: float = 0.0  # Temperature for inference sampling (0.0 = deterministic, >0 = stochastic)
+    
     # Training Parameters
     batch_size: int = 64
     learning_rate: float = 5e-4    # Reduced learning rate
@@ -53,6 +74,10 @@ class StockPredictionConfig:
     patience: int = 5              # Early stopping patience
     max_train_iterations: Optional[int] = None # Limit iterations per epoch (for testing)
 
+    # Checkpoint Saving Parameters
+    save_checkpoint_every_n_iterations: Optional[int] = 1000  # Save checkpoint every N iterations (None to disable)
+    save_checkpoint_every_n_epochs: Optional[int] = None      # Save checkpoint every N epochs (None to disable)
+    
     # Loss Function Parameters
     loss_type: str = "adaptive"    # Use our new adaptive loss
     loss_kwargs: dict = field(default_factory=lambda: {
@@ -82,18 +107,54 @@ class StockPredictionConfig:
     # Model Specific
     factor: int = 5  # probsparse attn factor
     enc_in: int = 3  # number of input features (Volume, Close, Transactions)
-    freq: str = 'min'  # time feature encoding frequency 
+    dec_in: int = 3  # decoder input size (same as enc_in for iTransformer)
+    c_out: int = 3   # output size (same as enc_in for iTransformer)
+    freq: str = 'min'  # time feature encoding frequency
+    forecasting_features: str = 'M'  # forecasting task: 'M'=multivariate predict multivariate, 'S'=univariate predict univariate, 'MS'=multivariate predict univariate
+    class_strategy: str = 'projection'  # classification strategy (not used in regression, but needed for compatibility) 
     
     # Runtime storage for file paths
     available_files: List[str] = field(default_factory=list)
     train_files: List[str] = field(default_factory=list)
     test_files: List[str] = field(default_factory=list)
+    val_files: List[str] = field(default_factory=list)  # Add missing val_files field
     
     # How often to run test predictions during training (0 to disable)
     test_interval: int = 0  # Will test every 1 epochs
     test_iteration_interval: int = 5000  # Will also test every 5000 iterations (0 to disable)
     
+    # Logging Parameters
+    log_every_n_iterations: int = 100  # Log detailed metrics every N iterations
+    save_iteration_metrics: bool = True  # Save iteration-level metrics for visualization
+    
     def __post_init__(self):
+        # Initialize file paths - this can be called again after CLI overrides
+        self._initialize_file_paths()
+        
+        # Handle stock selection
+        if self.stocks is None or len(self.stocks) == 0:  # Handle both None and empty list
+            # Don't set self.stocks to the list of all tickers
+            # Just leave it as None to indicate we want all stocks
+            print(f"\nUsing all available stocks")
+        else:
+            self.stocks = self.stocks.copy()  # Make a copy to be safe
+            
+        # Auto-detect best available device
+        if self.use_gpu:
+            if torch.cuda.is_available():
+                print("NVIDIA CUDA GPU available")
+            elif torch.backends.mps.is_available():
+                print("Apple Silicon MPS available")
+            else:
+                print("No GPU available, will use CPU")
+                self.use_gpu = False
+        else:
+            print("GPU usage is disabled, will use CPU")
+        print(f"Config stocks type: {type(self.stocks)}")
+        print(f"Config stocks value: {self.stocks}")
+    
+    def _initialize_file_paths(self):
+        """Initialize file paths based on current data_dir. Can be called after CLI overrides."""
         # Get all available CSV files and ensure they are sorted chronologically
         csv_files = sorted(glob.glob(os.path.join(self.data_dir, "*.csv")))
         # random.shuffle(csv_files) # Removed shuffle to maintain chronological order
@@ -125,29 +186,6 @@ class StockPredictionConfig:
         self.train_files = csv_files[-(self.test_size + self.val_size + train_size):-(self.test_size + self.val_size)]  # Limited training files
         
         print(f"Data split - Train: {len(self.train_files)} files, Validation: {len(self.val_files)} files, Test: {len(self.test_files)} files")
-        
-        # Handle stock selection
-        if self.stocks is None or len(self.stocks) == 0:  # Handle both None and empty list
-            # Don't set self.stocks to the list of all tickers
-            # Just leave it as None to indicate we want all stocks
-            print(f"\nUsing all available stocks")
-        else:
-            self.stocks = self.stocks.copy()  # Make a copy to be safe
-            
-        # Auto-detect best available device
-        if self.use_gpu:
-            if torch.cuda.is_available():
-                if torch.cuda.get_device_properties(0).is_cuda:
-                    print("NVIDIA CUDA GPU available")
-                elif torch.cuda.get_device_properties(0).platform == "ROCm":
-                    print("AMD ROCm GPU available") 
-            elif torch.backends.mps.is_available():
-                print("Apple Silicon MPS available")
-            else:
-                print("No GPU available, will use CPU")
-                self.use_gpu = False
-        print(f"Config stocks type: {type(self.stocks)}")
-        print(f"Config stocks value: {self.stocks}")
     
     @property
     def train_data_path(self) -> str:

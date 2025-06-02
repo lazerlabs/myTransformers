@@ -33,7 +33,9 @@ def create_data_loaders(config):
         features=config.features,
         global_mean=global_mean,
         global_std=global_std,
-        shuffle=True # Shuffle training data
+        shuffle=True, # Shuffle training data
+        mode=config.mode,
+        interpolate_max_missing=config.interpolate_max_missing
     )
 
     # 3. Create Test DataLoader
@@ -49,7 +51,9 @@ def create_data_loaders(config):
         features=config.features,
         global_mean=global_mean,
         global_std=global_std,
-        shuffle=False # Do not shuffle test data
+        shuffle=False, # Do not shuffle test data
+        mode=config.mode,
+        interpolate_max_missing=config.interpolate_max_missing
     )
 
     # TODO: Consider adding a validation dataloader here using config.val_files

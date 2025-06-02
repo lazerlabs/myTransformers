@@ -11,7 +11,19 @@ from tqdm import tqdm
 import warnings
 
 class StockDataset(Dataset):
-    """Custom dataset for stock market data with memory-efficient loading and global normalization"""
+    """
+    Custom dataset for stock market data with memory-efficient loading and global normalization.
+
+    Memory Efficiency:
+        - Only one CSV file is processed at a time, in chunks, to avoid loading all data into memory at once.
+        - For each file, data is grouped by ticker in memory only for the duration of processing that file.
+        - All valid sequences are stored in memory for random access, as required by PyTorch's Dataset interface.
+        - This design ensures scalability for large numbers of files and tickers, as specified in REFACTOR_PLAN.md.
+
+    Note:
+        - If a single file contains a very large amount of data for a single ticker, memory usage may still be high for that ticker during processing.
+        - The global statistics calculation (see calculate_global_stats) does load all data for stats at once, which is documented separately.
+    """
 
     # Type hints for attributes
     seq_len: int
@@ -20,8 +32,11 @@ class StockDataset(Dataset):
     features: List[str]
     mean_: Optional[np.ndarray]
     std_: Optional[np.ndarray]
-    all_sequences: List[Tuple[np.ndarray, pd.Timestamp]] # List of (sequence_data, start_timestamp)
+    all_sequences: List[Tuple[np.ndarray, pd.Timestamp, str]] # List of (sequence_data, start_timestamp, ticker)
     total_sequences: int
+    mode: str
+    interpolate_max_missing: int
+    max_input_length: int
 
     def __init__(self,
                  file_paths: Union[str, List[str]],
@@ -31,20 +46,25 @@ class StockDataset(Dataset):
                  scale: bool = True,
                  features: Optional[List[str]] = None,
                  global_mean: Optional[np.ndarray] = None,
-                 global_std: Optional[np.ndarray] = None):
+                 global_std: Optional[np.ndarray] = None,
+                 mode: str = 'full_day',
+                 interpolate_max_missing: int = 3):
         """
         Initializes the StockDataset.
 
         Args:
             file_paths (Union[str, List[str]]): Path(s) to the CSV file(s) for this dataset split.
             tickers (list, optional): List of stock tickers to include.
-            seq_len (int): Input sequence length.
+            seq_len (int): Input sequence length (used for sliding_window mode).
             pred_len (int): Prediction sequence length.
             scale (bool): Whether to apply standardization using global stats.
             features (list): List of features to use.
             global_mean (np.ndarray, optional): Global mean calculated from the training set.
             global_std (np.ndarray, optional): Global standard deviation calculated from the training set.
+            mode (str): Mode of operation ('sliding_window' or 'full_day').
+            interpolate_max_missing (int): Maximum number of consecutive NaNs to interpolate.
         """
+        print(f"StockDataset.__init__ - Mode: {mode}")
         print(f"StockDataset.__init__ - Received tickers: {tickers}")
         self.seq_len = seq_len
         self.pred_len = pred_len
@@ -52,6 +72,8 @@ class StockDataset(Dataset):
         self.mean_ = global_mean # Store global stats
         self.std_ = global_std   # Store global stats
         self.features = features or ['volume', 'close', 'transactions']
+        self.mode = mode
+        self.interpolate_max_missing = interpolate_max_missing
 
         if self.scale and (self.mean_ is None or self.std_ is None):
              warnings.warn("Scaling is enabled, but global_mean or global_std were not provided. Data will not be scaled.")
@@ -63,37 +85,45 @@ class StockDataset(Dataset):
              if self.mean_.shape != expected_shape or self.std_.shape != expected_shape:
                  raise ValueError(f"global_mean/std shape mismatch. Expected {expected_shape}, got mean: {self.mean_.shape}, std: {self.std_.shape}")
 
+        # Validation for mode
+        if mode not in ['sliding_window', 'full_day']:
+            raise ValueError(f"mode must be 'sliding_window' or 'full_day', got: {mode}")
 
         # Convert single file path to list
         if isinstance(file_paths, str):
             file_paths = [file_paths]
 
-        print(f"\nProcessing {len(file_paths)} data file(s) for dataset...")
-        # self.data_chunks = [] # Old structure - replaced by all_sequences
-        self.all_sequences = [] # Store all sequences directly
-        # total_sequences = 0 # Not needed here
+        print(f"\nProcessing {len(file_paths)} data file(s) for dataset in {mode} mode...")
+        self.all_sequences = []
+        self.max_input_length = 0  # Track maximum input sequence length for padding
 
+        # First pass: collect all sequences and find max length
         for file_path in file_paths:
             print(f"\nProcessing {os.path.basename(file_path)}:")
 
             # Read and process file in chunks
             try:
-                # Make sure window_start is parsed as datetime
-                chunks = pd.read_csv(file_path, chunksize=10000, parse_dates=['window_start'])
+                # Read CSV without parsing dates first, then convert nanosecond timestamps
+                chunks = pd.read_csv(file_path, chunksize=10000)
             except FileNotFoundError:
                 warnings.warn(f"File not found: {file_path}. Skipping.")
                 continue
-            except ValueError as e:
-                 warnings.warn(f"Error parsing dates in {file_path}: {e}. Skipping.")
-                 continue
             except Exception as e: # Catch other potential pd.read_csv errors
                  warnings.warn(f"Error reading {file_path}: {e}. Skipping.")
                  continue
 
-
             file_data = {}  # {ticker: DataFrame} for this file
 
             for chunk in tqdm(chunks, desc=f"Reading {os.path.basename(file_path)}"):
+                # Convert nanosecond timestamps to datetime
+                if 'window_start' in chunk.columns:
+                    try:
+                        # Convert nanosecond timestamps to datetime
+                        chunk['window_start'] = pd.to_datetime(chunk['window_start'], unit='ns')
+                    except Exception as e:
+                        warnings.warn(f"Error converting timestamps in {os.path.basename(file_path)}: {e}. Skipping file.")
+                        break
+                
                 # Group by ticker
                 for ticker, group in chunk.groupby('ticker'):
                     if tickers is not None and ticker not in tickers: # Filter tickers if provided
@@ -124,117 +154,232 @@ class StockDataset(Dataset):
                     warnings.warn(f"Error processing data for ticker {ticker}: {e}. Skipping.")
                     continue
 
+                # Extract feature data
+                try:
+                    feature_data = ticker_data[self.features].values.astype(np.float32)
+                except KeyError as e:
+                    warnings.warn(f"Missing feature {e} for ticker {ticker}. Skipping.")
+                    continue
 
-                # Check for sufficient length AFTER combining chunks
-                if len(ticker_data) >= (self.seq_len + self.pred_len):
-                    # Extract feature data
-                    try:
-                        feature_data = ticker_data[self.features].values.astype(np.float32) # Ensure float32
-                    except KeyError as e:
-                         warnings.warn(f"Missing feature {e} for ticker {ticker}. Skipping.")
-                         continue
+                # Handle missing values with interpolation
+                feature_data = self._handle_missing_values(feature_data, ticker)
+                if feature_data is None:
+                    continue
 
-                    # mean = feature_data.mean(axis=0) # REMOVED per-file calculation
-                    # std = feature_data.std(axis=0)   # REMOVED per-file calculation
+                timestamps = ticker_data['window_start'].values
 
-                    # Extract timestamps corresponding to the feature data
-                    timestamps = ticker_data['window_start'].values
+                if self.mode == 'sliding_window':
+                    sequences_for_ticker = self._create_sliding_window_sequences(
+                        feature_data, timestamps, ticker)
+                elif self.mode == 'full_day':
+                    sequences_for_ticker = self._create_full_day_sequence(
+                        feature_data, timestamps, ticker)
 
-                    # Create sequences for this ticker
-                    sequences_for_ticker = [] # Now stores tuples (sequence_data, start_timestamp)
-                    nan_skipped_count = 0
-                    for i in range(len(ticker_data) - self.seq_len - self.pred_len + 1):
-                        seq_data = feature_data[i : i + self.seq_len + self.pred_len]
-                        seq_start_time = timestamps[i] # Get the timestamp for the start of the sequence
-
-                        # Check for NaNs in sequence before scaling
-                        if np.isnan(seq_data).any():
-                            nan_skipped_count += 1
-                            nan_skipped_count += 1
-                            continue # Skip sequences with NaNs
-
-                        if self.scale:
-                             # Use global stats for normalization
-                            seq_data = (seq_data - self.mean_) / (self.std_ + 1e-7) # Apply scaling to seq_data
-
-                        # Append tuple of (data, start_timestamp)
-                        sequences_for_ticker.append((seq_data, seq_start_time))
-
-                    if nan_skipped_count > 0:
-                         warnings.warn(f"Skipped {nan_skipped_count} sequences containing NaNs for ticker {ticker}.")
-
-                    if sequences_for_ticker:
-                        self.all_sequences.extend(sequences_for_ticker) # Add sequences to the main list
-                        valid_tickers += 1
-                        file_sequences += len(sequences_for_ticker)
-                # else:
-                #     print(f"Skipping ticker {ticker} due to insufficient length: {len(ticker_data)}")
-
+                if sequences_for_ticker:
+                    self.all_sequences.extend(sequences_for_ticker)
+                    valid_tickers += 1
+                    file_sequences += len(sequences_for_ticker)
 
             print(f"Valid tickers processed in file: {valid_tickers}")
             print(f"Sequences added from file: {file_sequences}")
-            # total_sequences += file_sequences # Not needed here
 
-        self.total_sequences = len(self.all_sequences) # Update total count based on list length
+        self.total_sequences = len(self.all_sequences)
         print(f"\nTotal sequences loaded for this dataset split: {self.total_sequences}")
+        
         if self.total_sequences == 0:
             warnings.warn("Dataset created with 0 sequences. Check file paths, ticker lists, and sequence length requirements.")
+        
+        # Print max input length for full_day mode
+        if self.mode == 'full_day' and self.total_sequences > 0:
+            print(f"Maximum input sequence length: {self.max_input_length}")
 
+    def _handle_missing_values(self, feature_data: np.ndarray, ticker: str) -> Optional[np.ndarray]:
+        """Handle missing values through interpolation with max consecutive limit."""
+        if not np.isnan(feature_data).any():
+            return feature_data
+
+        # Check for consecutive NaN stretches longer than max allowed
+        nan_mask = np.isnan(feature_data).any(axis=1)  # Any NaN in any feature for this timestep
+        
+        # Find consecutive NaN groups
+        consecutive_groups = []
+        current_group = []
+        
+        for i, is_nan in enumerate(nan_mask):
+            if is_nan:
+                current_group.append(i)
+            else:
+                if current_group:
+                    consecutive_groups.append(current_group)
+                    current_group = []
+        
+        if current_group:  # Handle case where data ends with NaNs
+            consecutive_groups.append(current_group)
+
+        # Check if any group exceeds max allowed
+        for group in consecutive_groups:
+            if len(group) > self.interpolate_max_missing:
+                warnings.warn(f"Ticker {ticker} has {len(group)} consecutive NaNs (max allowed: {self.interpolate_max_missing}). Skipping ticker.")
+                return None
+
+        # Interpolate missing values
+        result = feature_data.copy()
+        for col in range(feature_data.shape[1]):
+            col_data = pd.Series(feature_data[:, col])
+            col_data = col_data.interpolate(method='linear', limit=self.interpolate_max_missing)
+            
+            # Handle any remaining NaNs (e.g., at start/end)
+            col_data = col_data.fillna(method='ffill').fillna(method='bfill')
+            result[:, col] = col_data.values
+
+        # Final check
+        if np.isnan(result).any():
+            warnings.warn(f"Ticker {ticker} still has NaNs after interpolation. Skipping.")
+            return None
+
+        return result
+
+    def _create_sliding_window_sequences(self, feature_data: np.ndarray, timestamps: np.ndarray, ticker: str) -> List[Tuple]:
+        """Create sliding window sequences (existing logic)."""
+        if len(feature_data) < (self.seq_len + self.pred_len):
+            return []
+
+        sequences = []
+        for i in range(len(feature_data) - self.seq_len - self.pred_len + 1):
+            seq_data = feature_data[i : i + self.seq_len + self.pred_len]
+            seq_start_time = timestamps[i]
+
+            if self.scale:
+                seq_data = (seq_data - self.mean_) / (self.std_ + 1e-7)
+
+            sequences.append((seq_data, seq_start_time, ticker))
+
+        return sequences
+
+    def _create_full_day_sequence(self, feature_data: np.ndarray, timestamps: np.ndarray, ticker: str) -> List[Tuple]:
+        """Create one sequence using all available data for the ticker."""
+        if len(feature_data) < self.pred_len:
+            # Filter out tickers with insufficient data (< pred_len data points)
+            return []
+
+        # Use all available data except the last pred_len points
+        # The last pred_len points become the prediction target
+        total_length = len(feature_data)
+        input_length = total_length - self.pred_len
+        
+        # Track maximum input length for global padding
+        self.max_input_length = max(self.max_input_length, input_length)
+        
+        seq_data = feature_data[:total_length]  # All data for input + target
+        seq_start_time = timestamps[0]
+
+        if self.scale:
+            seq_data = (seq_data - self.mean_) / (self.std_ + 1e-7)
+
+        # Store the actual input length with the sequence
+        sequences = [(seq_data, seq_start_time, ticker, input_length)]
+        
+        return sequences
 
     def __len__(self) -> int:
         return self.total_sequences # Use the length of the sequence list
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         if idx >= self.total_sequences:
             raise IndexError("Index out of range")
 
-        # Retrieve the pre-processed sequence data and its start timestamp
-        sequence_data, start_timestamp = self.all_sequences[idx] # Unpack tuple
+        if self.mode == 'sliding_window':
+            # Existing logic
+            sequence_data, start_timestamp, ticker = self.all_sequences[idx]
+            x_data = sequence_data[:self.seq_len]
+            y_data = sequence_data[self.seq_len:]
+            
+            # Create attention mask (all ones for sliding window since no padding)
+            attention_mask = np.ones(self.seq_len, dtype=np.float32)
+            
+        elif self.mode == 'full_day':
+            # New logic for full day with padding
+            sequence_data, start_timestamp, ticker, input_length = self.all_sequences[idx]
+            x_data = sequence_data[:input_length]  # Original (unpadded) input
+            y_data = sequence_data[input_length:input_length + self.pred_len]   # Target data
+            
+            # Create attention mask: 1 for real data, 0 for padding
+            attention_mask = np.zeros(self.max_input_length, dtype=np.float32)
+            attention_mask[:input_length] = 1.0  # Mark real data positions
+            
+            # Pad x_data to max_input_length if needed
+            if len(x_data) < self.max_input_length:
+                padding = np.zeros((self.max_input_length - len(x_data), x_data.shape[1]), dtype=np.float32)
+                x_data = np.concatenate([x_data, padding], axis=0)
+            
+            # Update seq_len for time feature generation
+            actual_seq_len = input_length
+        else:
+            raise ValueError(f"Unknown mode: {self.mode}")
 
-        # Split into x and y data
-        x_data = sequence_data[:self.seq_len]
-        y_data = sequence_data[self.seq_len:]
-
-        # --- Create Time Features ---
-        # Generate time index for the input sequence (x)
-        # Assuming 'min' frequency based on config.freq (might need to pass freq)
+        # Generate time features
         try:
-            x_time_index = pd.date_range(start=start_timestamp, periods=self.seq_len, freq='min')
-
-            # Generate time index for the target sequence (y)
-            # Start time is the timestamp after the last input timestamp
-            y_start_timestamp = x_time_index[-1] + pd.Timedelta(minutes=1)
+            if self.mode == 'full_day':
+                x_time_index = pd.date_range(start=start_timestamp, periods=actual_seq_len, freq='min')
+                
+                # Pad time features to match padded sequence length
+                x_mark = get_time_features(x_time_index)
+                if len(x_mark) < self.max_input_length:
+                    # Pad time features with zeros
+                    time_padding = np.zeros((self.max_input_length - len(x_mark), 5), dtype=np.float32)
+                    x_mark = np.concatenate([x_mark, time_padding], axis=0)
+                    
+                y_start_timestamp = x_time_index[-1] + pd.Timedelta(minutes=1)
+            else:
+                x_time_index = pd.date_range(start=start_timestamp, periods=self.seq_len, freq='min')
+                x_mark = get_time_features(x_time_index)
+                y_start_timestamp = x_time_index[-1] + pd.Timedelta(minutes=1)
+                
             y_time_index = pd.date_range(start=y_start_timestamp, periods=self.pred_len, freq='min')
+            y_mark = get_time_features(y_time_index)
+            
         except Exception as e:
-            # Handle potential errors with timestamp/date_range (e.g., invalid start_timestamp)
             warnings.warn(f"Error generating time index for sequence {idx}: {e}. Returning zero time features.")
-            x_mark = np.zeros((self.seq_len, 5), dtype=np.float32) # 5 features: min, hr_sin, hr_cos, dow_sin, dow_cos
+            if self.mode == 'full_day':
+                seq_len_for_features = self.max_input_length
+            else:
+                seq_len_for_features = self.seq_len
+            x_mark = np.zeros((seq_len_for_features, 5), dtype=np.float32)
             y_mark = np.zeros((self.pred_len, 5), dtype=np.float32)
+            
             return (
                 torch.from_numpy(x_data),
                 torch.from_numpy(x_mark),
                 torch.from_numpy(y_data),
-                torch.from_numpy(y_mark)
+                torch.from_numpy(y_mark),
+                torch.from_numpy(attention_mask)
             )
-        x_mark = get_time_features(x_time_index)
-        y_mark = get_time_features(y_time_index)
-        # --- End Time Features ---
 
-        # DataLoader handles batch dimension. Return tensors directly.
         return (
             torch.from_numpy(x_data),
             torch.from_numpy(x_mark),
             torch.from_numpy(y_data),
-            torch.from_numpy(y_mark)
-    )
+            torch.from_numpy(y_mark),
+            torch.from_numpy(attention_mask)
+        )
 
-    # Keep get_last_timestamp and denormalize for now, but denormalize needs update
-    # TODO: Implement logic to actually store and return the last timestamp if needed.
     def get_last_timestamp(self) -> Optional[pd.Timestamp]:
-        """Return the last timestamp encountered during processing (Not currently implemented)."""
-        # return self.last_timestamp # Note: self.last_timestamp is not currently set anywhere
-        warnings.warn("get_last_timestamp is not fully implemented.")
+        if self.all_sequences:
+            return self.all_sequences[-1][1]  # Return timestamp from last sequence tuple
         return None
+    
+    def get_ticker_for_sequence(self, idx: int) -> str:
+        """Get the ticker symbol for a specific sequence index."""
+        if idx >= self.total_sequences:
+            raise IndexError("Index out of range")
+        return self.all_sequences[idx][2]  # Return ticker from tuple
+    
+    def get_sequence_info(self, idx: int) -> Tuple[str, pd.Timestamp]:
+        """Get ticker and timestamp for a specific sequence index."""
+        if idx >= self.total_sequences:
+            raise IndexError("Index out of range")
+        _, timestamp, ticker = self.all_sequences[idx]
+        return ticker, timestamp
 
     def denormalize(self, data: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
         """Denormalize the data using the stored global mean and std.
@@ -292,6 +437,18 @@ def calculate_global_stats(file_paths, features, tickers=None):
     """
     Calculates the global mean and standard deviation across all specified files and tickers.
 
+    WARNING:
+        - This function loads all relevant data from all specified files into memory at once to compute statistics.
+        - For very large datasets, this may cause high memory usage.
+        - This is only used for statistics calculation, not for training or inference.
+
+    Args:
+        file_paths (list): List of paths to the training CSV files.
+        features (list): List of feature names to calculate stats for.
+        tickers (list, optional): List of stock tickers to include. Defaults to None (all tickers).
+
+    Returns:
+        tuple: (global_mean, global_std) as numpy arrays, or (None, None) if no data.
     Args:
         file_paths (list): List of paths to the training CSV files.
         features (list): List of feature names to calculate stats for.
@@ -308,6 +465,14 @@ def calculate_global_stats(file_paths, features, tickers=None):
         try:
             # Read the entire file for stats calculation (consider memory for very large files)
             df = pd.read_csv(file_path)
+            
+            # Convert nanosecond timestamps if window_start column exists
+            if 'window_start' in df.columns:
+                try:
+                    df['window_start'] = pd.to_datetime(df['window_start'], unit='ns')
+                except Exception as ts_error:
+                    warnings.warn(f"Stats calculation: Error converting timestamps in {os.path.basename(file_path)}: {ts_error}. Continuing without timestamp conversion.")
+                    
         except FileNotFoundError:
             warnings.warn(f"Stats calculation: File not found: {file_path}. Skipping.")
             continue
@@ -366,9 +531,15 @@ def create_dataloader(file_paths: Union[str, List[str]],
                      features: Optional[List[str]] = None,
                      global_mean: Optional[np.ndarray] = None,
                      global_std: Optional[np.ndarray] = None,
-                     shuffle: bool = True) -> Tuple[StockDataset, Optional[DataLoader]]:
+                     shuffle: bool = True,
+                     mode: str = 'full_day',
+                     interpolate_max_missing: int = 3) -> Tuple[StockDataset, Optional[DataLoader]]:
     """
     Creates a StockDataset and DataLoader for the given file paths, applying global normalization if specified.
+
+    Memory Efficiency:
+        The underlying StockDataset processes one file at a time, in chunks, and does not load all CSVs into memory at once.
+        Only the final list of valid sequences is kept in memory for random access, ensuring scalability for large datasets.
 
     Args:
         file_paths (Union[str, List[str]]): Path(s) to the CSV file(s) for this dataloader.
@@ -381,6 +552,8 @@ def create_dataloader(file_paths: Union[str, List[str]],
         global_mean (Optional[np.ndarray]): Pre-calculated global mean (from training set).
         global_std (Optional[np.ndarray]): Pre-calculated global standard deviation (from training set).
         shuffle (bool): Whether to shuffle the data in the DataLoader. Should be True for training.
+        mode (str): Mode of operation ('sliding_window' or 'full_day').
+        interpolate_max_missing (int): Maximum number of consecutive NaNs to interpolate.
 
     Returns:
         Tuple[StockDataset, Optional[DataLoader]]: The created dataset and DataLoader (or None if dataset is empty).
@@ -395,14 +568,16 @@ def create_dataloader(file_paths: Union[str, List[str]],
     # Removed logic relying on 'config' object. Parameters are now passed directly.
 
     dataset = StockDataset(
-        file_paths=file_paths, # Use the passed file_paths list
+        file_paths=file_paths,
         tickers=tickers,
         seq_len=seq_len,
         pred_len=pred_len,
         scale=scale,
         features=features,
-        global_mean=global_mean, # Pass global stats
-        global_std=global_std    # Pass global stats
+        global_mean=global_mean,
+        global_std=global_std,
+        mode=mode,
+        interpolate_max_missing=interpolate_max_missing
     )
 
     # Check if dataset creation was successful
@@ -444,7 +619,9 @@ if __name__ == "__main__":
                 features=features,
                 global_mean=mean,
                 global_std=std,
-                shuffle=False # No need to shuffle test data
+                shuffle=False, # No need to shuffle test data
+                mode=config.mode,
+                interpolate_max_missing=config.interpolate_max_missing
             )
 
             if dataloader:

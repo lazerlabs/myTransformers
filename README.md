@@ -1,441 +1,127 @@
 # Stock Market Forecasting with iTransformer
 
-This project implements a specialized version of the iTransformer architecture for stock market price prediction. The implementation is based on the paper ["iTransformer: Inverted Transformers Are Effective for Time Series Forecasting"](https://arxiv.org/abs/2310.06625).
+This project implements a specialized version of the iTransformer architecture for stock market price prediction, based on the paper ["iTransformer: Inverted Transformers Are Effective for Time Series Forecasting"](https://arxiv.org/abs/2310.06625).
 
 ## Overview
 
-The iTransformer architecture inverts the traditional Transformer architecture by treating features as the sequence dimension and timestamps as the feature dimension. This inversion makes it particularly effective for time series forecasting tasks, including stock market prediction.
+The iTransformer architecture inverts the traditional Transformer by treating features as the sequence dimension and timestamps as the feature dimension. This inversion is particularly effective for time series forecasting tasks, including stock market prediction.
 
 ## Project Structure
 
 ```
 ├── data_provider/      # Data loading and preprocessing
-├── layers/            # Core transformer layers
-├── models/           # Model architecture
-├── utils/            # Utility functions
-└── figures/          # Generated visualizations
+├── layers/             # Core transformer layers
+├── models/             # Model architecture
+├── utils/              # Utility functions
+├── figures/            # Generated visualizations
+├── checkpoints/        # Model checkpoints
+├── logs/               # Logs and TensorBoard event files
+├── embeddings/         # Saved embeddings
 ```
 
-## Data Preparation
+## Training and Experiment Management
 
-### Input Features
-The model processes the following features for each stock:
-- Volume
-- Close price
-- Number of transactions
-- Features are normalized using global mean/std statistics calculated **only** from the training dataset files (Z-score normalization).
+All training and experiment management is performed via the command-line interface (CLI) using `train.py`. All configuration parameters can be set via CLI arguments, which override defaults in `configs.py`.
 
-### Data Processing
-- Each file is processed independently
-- Stocks are handled independently within each file
-- Each stock's time series contributes multiple sequences based on sliding windows
-- Minimum required length for a stock's data is sequence_length + prediction_length
-- Global statistics (mean, std) are calculated across all training files and applied consistently to train, validation, and test sets.
-- Missing values are handled by skipping sequences containing NaNs during data loading.
+### Example Usage
 
-### Data Loading Strategy
-- Files are processed one at a time to minimize memory usage
-- Each stock in each file can contribute multiple sequences
-- Sequences are created using a sliding window approach
-- The total number of sequences is the sum of available sequences from all stocks in all files
-- Batch creation is dynamic, potentially mixing sequences from different stocks and files
-
-### Data Splitting
-- Split level: File-based splitting
-- Split strategy: Files are sorted chronologically, then assigned sequentially (earliest to train, latest to test).
-- Default split sizes:
-  - Test set: 1 file
-  - Validation set: 2 files
-  - Training set: Configurable via train_size (default 5 files)
-- Minimum requirement: Need at least (test_size + val_size + 1) files
-- Each file can contain multiple stocks and sequences
-- Sequence creation:
-  - Each stock's data is split into sequences using sliding windows
-  - Minimum required length per stock: sequence_length + prediction_length
-  - Only stocks with sufficient data length are included
-  - Each valid stock contributes multiple sequences based on its length
-
-### Data Processing Details
-- **Global Normalization**:
-  - Mean and standard deviation are calculated across **all training files** for each feature.
-  - These global statistics are then applied using Z-score normalization to the training, validation, and test sets.
-- Sequence generation:
-  - Input sequence length: 60 minutes (configurable)
-  - Prediction length: 15 minutes (configurable)
-  # - Label length: 30 minutes (for teacher forcing) # Removed - Not applicable to encoder-only model
-- Features processed:
-  - Volume
-  - Close price
-  - Number of transactions
-
-## Model Architecture
-
-### Tokenization and Input Processing
-- Each feature (volume, close, transactions) is treated as a token
-- Input shape: [Batch, Stocks, Time, Features]
-- Features are normalized using global training set statistics (Z-score).
-- Temporal information is encoded using time features (see below) and positional encodings.
-
-### Embedding Layer
-The embedding system (`DataEmbedding_inverted`) combines:
-- Value embedding: Linear projection of input features
-- Temporal embedding: Captures gradient information
-- Feature embedding: Learned embeddings for 3 features (close, volume, transactions)
-- Positional encoding: Sinusoidal with learnable scale parameter
-- Additional components:
-  - Layer normalization
-  - Dropout (configurable, default 0.1)
-  - Temporal gradient computation with scale normalization
-
-### Transformer Architecture
-- Encoder-only architecture (no decoder)
-- Core components:
-  - Multi-head self-attention mechanism
-  - Feed-forward network
-  - Layer normalization
-- Default configuration:
-  - Model dimension (d_model): 512
-  - Number of heads (n_heads): 8
-  - Number of encoder layers (e_layers): 4
-  - Feed-forward dimension (d_ff): 2048
-  - Dropout rate: 0.2
-  - Activation: GELU
-
-### Loss Functions
-Multiple loss functions available through `StockPredictionLoss`:
-- MSE (Mean Squared Error)
-- Squared MAE (Mean Absolute Error)
-- Huber Loss (delta=1.0)
-- Asymmetric Loss (alpha=1.5)
-- Directional Loss
-  - Combines value accuracy and direction accuracy
-  - Configurable direction weight (default: 0.2)
-- Adaptive Scale Loss
-  - Handles different scales of price movements
-  - Configurable alpha (0.3) and beta (2.0)
-
-## Training Configuration
-
-### Default Parameters
-- Sequence length: 60 (1 hour of minute data)
-- Prediction length: 15 (predict next 15 minutes)
-# - Label length: 30 (for teacher forcing) # Removed - Not applicable
-- Batch size: 64
-- Learning rate: 5e-4
-- Training epochs: 20
-- Early stopping patience: 5
-
-### Learning Rate Scheduling
-- Scheduler: Cosine annealing
-- Minimum learning rate: 1e-5
-- Warmup epochs: 2
-- Decay factor: 0.1
-- Scheduler patience: 3
-
-### Data Processing
-- Chunk size: 10,000 rows for efficient memory usage
-- Per-stock statistics computation
-- Features processed: volume, close price, transactions
-- Automatic hardware selection (CUDA/MPS/CPU)
-
-## Training and Evaluation
-
-### Training Process
-- Adam optimizer with learning rate scheduling
-- Loss function is configurable via `configs.py` (see `loss_type` and `loss_kwargs`). Default is "adaptive". See `utils/loss.py` for all options.
-- Early stopping based on validation loss
-- Batch size: 32 (Note: `configs.py` default is 64)
-- Sequence length: 60 minutes
-- Prediction length: 60 minutes
-# - Label length: 60 minutes (for teacher forcing # Removed - Not applicable
-
-### Evaluation Metrics
-- Mean Absolute Error (MAE)
-- Mean Squared Error (MSE)
-- Root Mean Squared Error (RMSE)
-
-## Results Visualization
-
-The project includes various visualization tools:
-- Price prediction plots for each stock
-- Learning rate curves
-- Training metrics visualization
-- Embeddings visualization
-
-## Training Scripts
-
-### test_run.py
-- Quick testing script for development
-- Reduced model configuration:
-  - Model dimension: 256
-  - Sequence length: 60 minutes
-  - Prediction length: 60 minutes
-  # - Label length: 60 minutes # Removed - Not applicable
-  - Directional loss weight: 0.3
-- Includes embedding visualization
-- More verbose logging
-- Automatically selects best available device
-
-### train.py
-- Main training script for production
-- Full model configuration:
-  - Model dimension: 512 (default)
-  - Uses default sequence/prediction lengths
-  - Directional loss weight: 0.8
-- More emphasis on directional prediction
-- Detailed experiment naming
-- Supports keyboard interrupt for early stopping
-
-## Getting Started
-
-1. Install dependencies:
 ```bash
-pip install -r requirements.txt
+python train.py --train_epochs 10 --batch_size 128 --resume_checkpoint checkpoints/exp1_epoch5.pth
 ```
 
-2. Prepare your data in CSV format with columns:
-   - ticker: Stock symbol
-   - window_start: Timestamp
-   - volume: Trading volume
-   - close: Closing price
-   - transactions: Number of transactions
+### Major CLI Arguments
 
-3. Run training:
-```bash
-python train.py
+All fields in `StockPredictionConfig` (see `configs.py`) are available as CLI arguments. Key arguments include:
+
+- **Data and Features**
+  - `--data_dir`: Path to dataset directory
+  - `--stocks`: List of stock tickers to use (JSON string)
+  - `--features`: List of features (default: ["volume", "close", "transactions"])
+  - `--train_size`, `--test_size`, `--val_size`: Number of files for each split
+
+- **Sequence and Model**
+  - `--seq_len`: Input sequence length (default: 60)
+  - `--pred_len`: Prediction length (default: 15)
+  - `--label_len`: Label length for teacher forcing
+  - `--model`: Model type (default: "iTransformer")
+  - `--d_model`, `--n_heads`, `--e_layers`, `--d_ff`, `--dropout`, etc.
+
+- **Training**
+  - `--batch_size`
+  - `--learning_rate`
+  - `--train_epochs`
+  - `--patience`: Early stopping patience
+  - `--max_train_iterations`: Limit iterations per epoch
+
+- **Loss**
+  - `--loss_type`: Loss function type
+  - `--loss_kwargs`: Loss function parameters (JSON string)
+
+- **Device**
+  - `--use_gpu`, `--use_multi_gpu`, `--device_ids`
+
+- **Special CLI-only Arguments**
+  - `--resume_checkpoint`: Resume training from a specific checkpoint
+  - `--quick_test`: Run a quick test (1 epoch, 10 iterations, minimal data)
+  - `--extract_embeddings_only`: Only extract and save embeddings from the first batch, then exit
+  - `--seed`: Random seed
+
+**Note:** CLI arguments override all defaults in `configs.py`. Use `--help` for a full list of options.
+
+## Experiment Outputs
+
+All experiment outputs are organized by experiment/setting and saved to dedicated directories:
+
+- **Checkpoints** (`checkpoints/`):  
+  Model checkpoints are saved every 1000 iterations and at the best epoch (early stopping). Checkpoints include model state, optimizer state, and training progress. Training can be resumed from any checkpoint using `--resume_checkpoint`.
+
+- **Logs** (`logs/`):  
+  Training and evaluation logs, including TensorBoard event files for metrics, losses, and learning rates. Use TensorBoard to visualize training progress:
+  ```bash
+  tensorboard --logdir logs/
+  ```
+
+- **Figures** (`figures/`):  
+  Training, validation, and test figures (e.g., learning curves, sample predictions) are saved at the end of each epoch.
+
+- **Embeddings** (`embeddings/`):  
+  Embeddings are always extracted and saved from the first batch before training starts.
+
+## Workflow
+
+```mermaid
+flowchart TD
+    A[Start train.py] --> B[Parse CLI args]
+    B --> C[Load configs.py defaults]
+    C --> D[Override with CLI args]
+    D --> E[Initialize Exp_Stock_Forecast]
+    E --> F[Extract and save embeddings]
+    F --> G[For each epoch]
+    G --> H[For each batch: train step]
+    H --> I{Every 1000 iters?}
+    I -- Yes --> J[Save checkpoint]
+    I -- No --> H
+    H --> K[End of epoch]
+    K --> L[Run test evaluation]
+    K --> M[Save figures/metrics]
+    G -->|If resume| N[Load checkpoint]
+    M --> O[TensorBoard logging]
+    O --> P[End]
 ```
 
-4. Run predictions:
-```bash
-python test_run.py
-```
+## Memory-Efficient Data Loading
 
-## References
+- Only one CSV file is loaded at a time per ticker for training, minimizing memory usage.
+- User can control which files and tickers to use via CLI/config.
+- Enables training on large datasets without high memory requirements.
+- Sequences are created using a sliding window approach, and batches may mix sequences from different stocks and files.
 
-- Original iTransformer paper: [arXiv:2310.06625](https://arxiv.org/abs/2310.06625)
+## Data Preparation (Summary)
 
-## Detailed implementation notes
-I'll analyze the project structure and answer your questions:
+- **Input Features:** Volume, Close price, Number of transactions (normalized using global mean/std from training files).
+- **Splitting:** Files are sorted chronologically and split into train/val/test sets.
+- **Sequence Creation:** Each stock's data is split into sequences using sliding windows; only stocks with sufficient data are included.
 
-### 1. Data Pipeline Flow
+## Obsolete Workflows
 
-The data flows through the following stages:
-
-a) **Data Loading**:
-- Starts in `StockDataset` class which loads CSV files
-- Features: volume, close price, and transactions
-- Creates sequences using sliding window approach
-
-```3:15:myTransformer/data_provider/data_loader.py
-from torch.utils.data import Dataset, DataLoader
-
-class StockDataset(Dataset):
-    def __init__(self, data_paths, seq_len, pred_len, label_len=None, stocks=None, features=None):
-        """
-        Initialize dataset for iTransformer
-        
-        Args:
-            data_paths: list of paths to CSV files containing stock data
-            seq_len: length of input sequence
-            pred_len: length of prediction sequence
-            label_len: length of label sequence (defaults to pred_len if None)
-            stocks: list of stock symbols to use (if None, use all stocks)
-```
-
-
-b) **Embedding**:
-- Data shape transformation: `[Batch, Time, Features] -> [Batch, Features, Time]`
-- Uses `DataEmbedding_inverted` which combines:
-  - Value embedding (linear projection)
-  - Feature embedding (learned embeddings for each feature type)
-
-```4:24:myTransformer/layers/Embed.py
-class DataEmbedding_inverted(nn.Module):
-    """
-    Data Embedding for stock market data
-    """
-    def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1):
-        super(DataEmbedding_inverted, self).__init__()
-        self.value_embedding = nn.Linear(c_in, d_model)
-        self.feature_embedding = nn.Embedding(3, d_model)  # 3 features: close, volume, transactions
-        self.dropout = nn.Dropout(p=dropout)
-
-    def forward(self, x, x_mark):
-        # x: [Batch, Time, Features] -> [Batch, Features, Time]
-        x = x.permute(0, 2, 1)
-        
-        # Create feature indices tensor
-        feature_indices = torch.arange(x.size(1), device=x.device)
-        
-        # Get feature embeddings
-        feature_emb = self.feature_embedding(feature_indices)
-        
-        # Combine value and feature embeddings
-```
-
-
-c) **Transformer Processing**:
-- Encoder-only architecture
-- Multi-head self-attention
-- Feed-forward network
-- Layer normalization
-
-```31:54:myTransformer/models/iTransformer.py
-
-        # Encoder-only architecture
-        self.encoder = Encoder(
-            [
-                EncoderLayer(
-                    AttentionLayer(
-                        FullAttention(
-                            False, 
-                            configs.factor, 
-                            attention_dropout=configs.dropout,
-                            output_attention=configs.output_attention
-                        ), 
-                        configs.d_model, 
-                        configs.n_heads
-                    ),
-                    configs.d_model,
-                    configs.d_ff,
-                    dropout=configs.dropout,
-                    activation=configs.activation
-                ) for _ in range(configs.e_layers)
-            ],
-            norm_layer=torch.nn.LayerNorm(configs.d_model)
-        )
-
-```
-
-
-### 2. Data Manipulation
-
-Yes, there are several data manipulations:
-
-1. **Normalization**:
-- Z-score normalization applied using global mean/std calculated **only** from the training dataset files.
-- These fixed stats are applied to train, validation, and test sets.
-
-``` (Code snippet reference might be outdated due to changes)
-            stock_df = df[df['ticker'] == stock]
-            
-            # Interpolate missing values if any
-            stock_df = stock_df.sort_values('window_start')
-            stock_df[self.features] = stock_df[self.features].interpolate(method='linear')
-            
-            # Process features
-```
-
-
-2. **Missing Value Handling**:
-- Linear interpolation for missing values
-
-```142:143:myTransformer/data_provider/data_loader.py
-        r_end = r_begin + self.pred_len  # Target sequence should be pred_len long
-        
-```
-
-
-3. **Time Feature Engineering**:
-- Extracts minute-of-hour, hour-of-day (cyclical sin/cos), and day-of-week (cyclical sin/cos) from timestamps.
-- Creates `x_mark` and `y_mark` tensors with these features.
-
-``` (Code snippet reference might be outdated due to changes)
-            # Store timestamps for visualization
-            self.timestamps = df['window_start'].unique()
-            # Convert timestamps to hour of day and add as time features
-            df['hour'] = df['window_start'].dt.hour
-            df['minute'] = df['window_start'].dt.minute
-            self.time_features = ['hour', 'minute']
-        else:
-            # If no timestamp, use dummy time features
-            df['hour'] = 0
-            df['minute'] = 0
-            self.time_features = ['hour', 'minute']
-            self.timestamps = pd.date_range('2000-01-01', periods=len(df), freq='1min')
-        
-        # Store the last timestamp
-```
-
-
-
-### 3. Loss Function
-
-The loss function is dynamically selected based on the `loss_type` parameter in `configs.py`, using the `get_loss_function` utility in `utils/loss.py`. The default is currently set to `"adaptive"`. The training script (`exp_stock_forecasting.py`) now correctly uses this configured loss.
-
-### 4. Network Topology
-Current architecture:
-- **Input Dimension**: Variable (based on number of features)
-- **Embedding**: 
-  - Dimension: 512 (as per README)
-  - Combines value and feature embeddings
-
-- **Transformer**:
-  - 4 encoder layers
-  - 8 attention heads
-  - Feed-forward dimension: 2048
-  - Dropout: 0.1
-
-```25:54:myTransformer/models/iTransformer.py
-            configs.seq_len, 
-            configs.d_model, 
-            configs.embed, 
-            configs.freq,
-            configs.dropout
-        )
-
-        # Encoder-only architecture
-        self.encoder = Encoder(
-            [
-                EncoderLayer(
-                    AttentionLayer(
-                        FullAttention(
-                            False, 
-                            configs.factor, 
-                            attention_dropout=configs.dropout,
-                            output_attention=configs.output_attention
-                        ), 
-                        configs.d_model, 
-                        configs.n_heads
-                    ),
-                    configs.d_model,
-                    configs.d_ff,
-                    dropout=configs.dropout,
-                    activation=configs.activation
-                ) for _ in range(configs.e_layers)
-            ],
-            norm_layer=torch.nn.LayerNorm(configs.d_model)
-        )
-
-```
-
-
-### Differences from LLM Transformers
-
-1. **Architecture**:
-   - iTransformer: Encoder-only, inverted feature-time dimensions
-   - LLM: Encoder-decoder or decoder-only, sequential token processing
-
-2. **Attention Mechanism**:
-   - iTransformer: Treats features as sequence dimension, time as feature dimension
-   - LLM: Processes tokens sequentially with causal masking
-
-3. **Input Processing**:
-   - iTransformer: Continuous numerical values with feature embeddings
-   - LLM: Discrete tokens with learned token embeddings
-
-4. **Output**:
-   - iTransformer: Continuous value prediction
-   - LLM: Token probability distribution
-
-5. **Sequence Length**:
-   - iTransformer: Typically shorter sequences (time series)
-   - LLM: Much longer sequences (thousands of tokens)
-
-This architecture is specifically optimized for time series forecasting by inverting the traditional transformer architecture to better handle feature relationships across time.
-
-## Hardware Support
-The model automatically selects the best available hardware:
-- CUDA GPU if available
-- Apple Silicon MPS if available
-- CPU as fallback
+All previous workflows using `test_run.py` or manual script-based testing are obsolete. All experiment management, including quick tests, is now handled via CLI arguments in `train.py`.

@@ -1,10 +1,21 @@
 import os
+import sys
+import click
 import torch
 import random
 import numpy as np
-from configs import StockPredictionConfig
+import json
+import subprocess
+import threading
+import time
+import webbrowser
+from configs import StockPredictionConfig, get_config_defaults
 from exp_stock_forecasting import Exp_Stock_Forecast
 from utils.loss import get_loss_function
+from torch.utils.tensorboard import SummaryWriter
+
+# Get config defaults for use in click decorators
+_config_defaults = get_config_defaults()
 
 def setup_seed(seed):
     """Set random seed for reproducibility"""
@@ -14,28 +25,241 @@ def setup_seed(seed):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
 
-def main():
-    # Set random seed
-    setup_seed(2024)
+def save_embeddings(embeddings, file_path):
+    """Save embeddings to a JSON file in a readable format"""
+    embeddings_dict = {
+        'shape': list(embeddings.shape),
+        'data': embeddings.cpu().numpy().tolist()
+    }
+    with open(file_path, 'w') as f:
+        json.dump(embeddings_dict, f, indent=2)
+    print(f"Embeddings saved to {file_path}")
+
+def start_tensorboard(log_dir, port=6006, host='0.0.0.0'):
+    """Start TensorBoard in a separate process"""
+    try:
+        # Check if TensorBoard is already running on this port
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        result = sock.connect_ex((host if host != '0.0.0.0' else 'localhost', port))
+        sock.close()
+        
+        if result == 0:
+            print(f"TensorBoard is already running on port {port}")
+            return None
+        
+        # Start TensorBoard
+        cmd = [
+            'tensorboard', 
+            f'--logdir={log_dir}',
+            f'--port={port}',
+            f'--host={host}',
+            '--reload_interval=30'
+        ]
+        
+        print(f"Starting TensorBoard: {' '.join(cmd)}")
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # Give it a moment to start
+        time.sleep(2)
+        
+        # Check if it started successfully
+        if process.poll() is None:  # Still running
+            print(f"✅ TensorBoard started successfully!")
+            print(f"📊 Open http://localhost:{port} in your browser to monitor training")
+            return process
+        else:
+            stdout, stderr = process.communicate()
+            print(f"❌ Failed to start TensorBoard:")
+            print(f"STDOUT: {stdout}")
+            print(f"STDERR: {stderr}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Error starting TensorBoard: {e}")
+        return None
+
+def open_tensorboard_browser(port=6006, delay=3):
+    """Open TensorBoard in browser after a delay"""
+    def delayed_open():
+        time.sleep(delay)
+        try:
+            webbrowser.open(f'http://localhost:{port}')
+            print(f"🌐 Opened TensorBoard in your default browser")
+        except Exception as e:
+            print(f"Could not open browser automatically: {e}")
     
-    # Load config
+    thread = threading.Thread(target=delayed_open, daemon=True)
+    thread.start()
+
+@click.command()
+# Data Parameters
+@click.option('--data-dir', type=str, default=_config_defaults['data_dir'], show_default=True, help='Directory containing data files')
+@click.option('--stocks', type=str, default=None, help='Comma-separated list of stock tickers (e.g. AAPL,MSFT) - defaults to all stocks if not specified')
+@click.option('--features', type=str, default=','.join(_config_defaults['features']), show_default=True, help='Comma-separated list of features (e.g. volume,close,transactions)')
+@click.option('--train-size', type=int, default=_config_defaults['train_size'], show_default=True, help='Number of files to use for training')
+@click.option('--test-size', type=int, default=_config_defaults['test_size'], show_default=True, help='Number of files to use for testing')
+@click.option('--val-size', type=int, default=_config_defaults['val_size'], show_default=True, help='Number of files to use for validation')
+@click.option('--val-stocks', type=str, default=','.join(_config_defaults['val_stocks']), show_default=True, help='Comma-separated list of validation stock tickers')
+
+# Sequence Parameters
+@click.option('--seq-len', type=int, default=_config_defaults['seq_len'], show_default=True, help='Input sequence length')
+@click.option('--pred-len', type=int, default=_config_defaults['pred_len'], show_default=True, help='Prediction sequence length')
+@click.option('--label-len', type=int, default=_config_defaults['label_len'], show_default=True, help='Label length for teacher forcing')
+@click.option('--scale/--no-scale', default=_config_defaults['scale'], help='Whether to scale the data')
+
+# Dataset Mode Parameters
+@click.option('--mode', type=click.Choice(['sliding_window', 'full_day']), default=_config_defaults['mode'], show_default=True, help='Dataset mode: sliding_window or full_day')
+@click.option('--interpolate-max-missing', type=int, default=_config_defaults['interpolate_max_missing'], show_default=True, help='Maximum consecutive NaNs to interpolate')
+@click.option('--max-seq-len', type=int, default=_config_defaults['max_seq_len'], show_default=True, help='Maximum sequence length for embedding layer (for full_day mode)')
+
+# Model Parameters
+@click.option('--model', type=str, default=_config_defaults['model'], show_default=True, help='Model name')
+@click.option('--d-model', type=int, default=_config_defaults['d_model'], show_default=True, help='Model dimension')
+@click.option('--n-heads', type=int, default=_config_defaults['n_heads'], show_default=True, help='Number of attention heads')
+@click.option('--e-layers', type=int, default=_config_defaults['e_layers'], show_default=True, help='Number of encoder layers')
+@click.option('--d-ff', type=int, default=_config_defaults['d_ff'], show_default=True, help='Feed-forward dimension')
+@click.option('--dropout', type=float, default=_config_defaults['dropout'], show_default=True, help='Dropout rate')
+@click.option('--embed', type=str, default=_config_defaults['embed'], show_default=True, help='Embedding type')
+@click.option('--activation', type=str, default=_config_defaults['activation'], show_default=True, help='Activation function')
+@click.option('--output-attention/--no-output-attention', default=_config_defaults['output_attention'], help='Whether to output attention weights')
+@click.option('--use-norm/--no-use-norm', default=_config_defaults['use_norm'], help='Whether to use normalization')
+
+# Inference Parameters
+@click.option('--temperature', type=float, default=_config_defaults['temperature'], show_default=True, help='Temperature for inference sampling')
+
+# Training Parameters
+@click.option('--batch-size', type=int, default=_config_defaults['batch_size'], show_default=True, help='Batch size')
+@click.option('--learning-rate', type=float, default=_config_defaults['learning_rate'], show_default=True, help='Learning rate')
+@click.option('--train-epochs', type=int, default=_config_defaults['train_epochs'], show_default=True, help='Number of training epochs')
+@click.option('--patience', type=int, default=_config_defaults['patience'], show_default=True, help='Early stopping patience')
+@click.option('--max-train-iterations', type=int, default=_config_defaults['max_train_iterations'], show_default=True, help='Maximum iterations per epoch')
+
+# Checkpoint Parameters
+@click.option('--save-checkpoint-every-n-iterations', type=int, default=_config_defaults['save_checkpoint_every_n_iterations'], show_default=True, help='Save checkpoint every N iterations')
+@click.option('--save-checkpoint-every-n-epochs', type=int, default=_config_defaults['save_checkpoint_every_n_epochs'], show_default=True, help='Save checkpoint every N epochs')
+
+# Loss Parameters
+@click.option('--loss-type', type=str, default=_config_defaults['loss_type'], show_default=True, help='Loss function type')
+@click.option('--loss-kwargs', type=str, default=json.dumps(_config_defaults['loss_kwargs']), show_default=True, help='Loss function kwargs as JSON string')
+
+# Learning Rate Scheduler Parameters
+@click.option('--lr-scheduler', type=str, default=_config_defaults['lr_scheduler'], show_default=True, help='Learning rate scheduler type')
+@click.option('--lr-decay-factor', type=float, default=_config_defaults['lr_decay_factor'], show_default=True, help='Learning rate decay factor')
+@click.option('--lr-patience', type=int, default=_config_defaults['lr_patience'], show_default=True, help='Learning rate scheduler patience')
+@click.option('--min-lr', type=float, default=_config_defaults['min_lr'], show_default=True, help='Minimum learning rate')
+@click.option('--warmup-epochs', type=int, default=_config_defaults['warmup_epochs'], show_default=True, help='Number of warmup epochs')
+
+# Device Parameters
+@click.option('--use-gpu/--no-use-gpu', default=_config_defaults['use_gpu'], help='Whether to use GPU')
+@click.option('--use-multi-gpu/--no-use-multi-gpu', default=_config_defaults['use_multi_gpu'], help='Whether to use multiple GPUs')
+@click.option('--gpu', type=int, default=_config_defaults['gpu'], show_default=True, help='GPU device ID')
+@click.option('--device-ids', type=str, default=None, help='Comma-separated GPU device IDs (defaults to config default)')
+
+# Directory Parameters - show config defaults in help
+@click.option('--checkpoints-dir', type=str, default=_config_defaults['checkpoints_dir'], show_default=True, help='Checkpoints directory')
+@click.option('--logs-dir', type=str, default=_config_defaults['logs_dir'], show_default=True, help='Logs directory')
+@click.option('--figures-dir', type=str, default=_config_defaults['figures_dir'], show_default=True, help='Figures directory')
+@click.option('--embeddings-dir', type=str, default=_config_defaults['embeddings_dir'], show_default=True, help='Embeddings directory')
+
+# Model Specific Parameters
+@click.option('--factor', type=int, default=_config_defaults['factor'], show_default=True, help='Probsparse attention factor')
+@click.option('--enc-in', type=int, default=_config_defaults['enc_in'], show_default=True, help='Number of input features')
+@click.option('--freq', type=str, default=_config_defaults['freq'], show_default=True, help='Time feature encoding frequency')
+
+# Test Parameters
+@click.option('--test-interval', type=int, default=_config_defaults['test_interval'], show_default=True, help='Test every N epochs during training')
+@click.option('--test-iteration-interval', type=int, default=_config_defaults['test_iteration_interval'], show_default=True, help='Test every N iterations during training')
+
+# Logging Parameters
+@click.option('--log-every-n-iterations', type=int, default=_config_defaults['log_every_n_iterations'], show_default=True, help='Log detailed metrics every N iterations')
+@click.option('--save-iteration-metrics/--no-save-iteration-metrics', default=_config_defaults['save_iteration_metrics'], help='Save iteration-level metrics for visualization')
+
+# TensorBoard Parameters - CLI-only options with their own defaults
+@click.option('--auto-start-tensorboard/--no-auto-start-tensorboard', default=True, help='Automatically start TensorBoard server')
+@click.option('--tensorboard-port', type=int, default=6006, show_default=True, help='Port for TensorBoard server')
+@click.option('--open-browser/--no-open-browser', default=False, help='Automatically open TensorBoard in browser')
+
+# Special Options - CLI-only options with their own defaults
+@click.option('--resume-checkpoint', type=str, help='Path to checkpoint to resume training from')
+@click.option('--quick-test', is_flag=True, help='Run a quick test (1 epoch, 10 iterations, minimal data)')
+@click.option('--extract-embeddings-only', is_flag=True, help='Only extract and save embeddings from the first batch, then exit')
+@click.option('--seed', type=int, default=2024, show_default=True, help='Random seed')
+def main(**kwargs):
+    """Train or test the stock forecasting model. All config parameters can be set via CLI. CLI args override configs.py defaults."""
+    
+    # Set up seed
+    setup_seed(kwargs['seed'])
+    
+    # Load base config
     config = StockPredictionConfig()
     
-    # Modify loss configuration to encourage more dynamic predictions
-    config.loss_type = "directional"
-    config.loss_kwargs = {
-        "base_loss": "squared_mae",
-        "direction_weight": 0.8  # Increase from 0.3 to give more weight to directional changes
-    }
+    # Apply quick test overrides first if specified
+    if kwargs['quick_test']:
+        config.seq_len = 60
+        config.pred_len = 15
+        config.batch_size = 32
+        config.d_model = 512
+        config.n_heads = 8
+        config.e_layers = 4
+        config.dropout = 0.2
+        config.test_size = 5
+        config.train_epochs = 1
+        config.max_train_iterations = 10
+        config.loss_type = "directional"
+        config.loss_kwargs = {"base_loss": "mae", "direction_weight": 0.3}
+        # Set checkpoint saving to happen more frequently for quick tests
+        config.save_checkpoint_every_n_iterations = 5  # Save every 5 iterations
+        config.val_size = 1  # Ensure we have validation data
     
-    # Create experiment setting name (Removed label_len 'll{}')
+    # Override config with provided CLI arguments (CLI now has config defaults, so this is clean)
+    for key, value in kwargs.items():
+        # Skip CLI-only arguments that don't have config counterparts
+        if key in ['auto_start_tensorboard', 'tensorboard_port', 'open_browser', 'resume_checkpoint', 'quick_test', 'extract_embeddings_only', 'seed']:
+            continue
+            
+        # Convert kebab-case to snake_case
+        config_key = key.replace('-', '_')
+        
+        # Handle special conversions
+        if config_key in ['stocks', 'features', 'val_stocks', 'device_ids']:
+            # Convert comma-separated string to list
+            if isinstance(value, str) and value:
+                setattr(config, config_key, [x.strip() for x in value.split(',') if x.strip()])
+            elif value is None and config_key == 'stocks':
+                # stocks=None means use all stocks (keep config default)
+                pass
+            else:
+                setattr(config, config_key, value)
+        elif config_key == 'loss_kwargs':
+            # Parse JSON string for loss_kwargs
+            if isinstance(value, str):
+                setattr(config, config_key, json.loads(value))
+            else:
+                setattr(config, config_key, value)
+        elif hasattr(config, config_key):
+            # Direct assignment for other valid config fields
+            setattr(config, config_key, value)
+        else:
+            print(f"Warning: Unknown config field '{config_key}' from CLI argument '--{key}'")
+    
+    # Reinitialize file paths if data_dir was changed via CLI
+    if kwargs.get('data_dir') is not None:
+        config._initialize_file_paths()
+
+    # Create experiment
+    exp = Exp_Stock_Forecast(config)
     setting = '{}_{}_{}_ft{}_sl{}_pl{}_dm{}_nh{}_el{}_df{}_eb{}_{}_{}_{}'.format(
         config.model,
-        config.train_data_path.split('/')[-1].replace('.csv', ''), # Note: train_data_path only gives first file
+        os.path.basename(config.train_files[0]) if config.train_files else "unknown",
         config.features,
         config.enc_in,
         config.seq_len,
-        # config.label_len, # Removed
         config.pred_len,
         config.d_model,
         config.n_heads,
@@ -44,24 +268,75 @@ def main():
         config.embed,
         config.activation,
         config.output_attention,
-        config.loss_type  # Add loss type to setting name
+        config.loss_type
     )
 
-    # Create experiment
-    exp = Exp_Stock_Forecast(config)
-    
+    # Always extract and save embeddings from the first batch before training
+    train_data, train_loader = exp._get_data(flag='train')
+    batch_iterator = iter(train_loader)
+    try:
+        batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask = next(batch_iterator)
+    except StopIteration:
+        raise RuntimeError("Could not get first batch - dataloader is empty")
+    if batch_x.numel() == 0:
+        raise RuntimeError("Got empty batch")
+    batch_x = batch_x.float().to(exp.device)
+    batch_x_mark = batch_x_mark.float().to(exp.device)
+    with torch.no_grad():
+        if hasattr(exp.model, "get_embeddings"):
+            embeddings = exp.model.get_embeddings(batch_x[0:1], batch_x_mark[0:1])
+            os.makedirs(config.embeddings_dir, exist_ok=True)
+            save_embeddings(embeddings, os.path.join(config.embeddings_dir, 'stock_embeddings.json'))
+        else:
+            print("Model does not support get_embeddings method.")
+
+    if kwargs['extract_embeddings_only']:
+        print("Exiting after embedding extraction as requested.")
+        return
+
+    # TensorBoard setup
+    tensorboard_process = None
+    if kwargs['auto_start_tensorboard']:
+        tensorboard_process = start_tensorboard(
+            log_dir=config.logs_dir,
+            port=kwargs['tensorboard_port'],
+            host='0.0.0.0'
+        )
+        
+        # Auto-open browser if requested
+        if kwargs['open_browser'] and tensorboard_process:
+            open_tensorboard_browser(port=kwargs['tensorboard_port'], delay=3)
+    else:
+        print(f"TensorBoard auto-start disabled. To monitor training manually run:")
+        print(f"tensorboard --logdir={config.logs_dir} --port={kwargs['tensorboard_port']}")
+
+    # TensorBoard logging setup
+    writer = SummaryWriter(log_dir=config.logs_dir)
+
     # Training
     print('>>>>>>>Start Training>>>>>>>>>>>>>>>>>>>>>>>>>>')
     try:
-        exp.train(setting)
+        model = exp.train(
+            setting,
+            writer=writer,
+            resume_checkpoint=kwargs.get('resume_checkpoint')
+        )
     except KeyboardInterrupt:
         print('\n>>>>>>>Early Stopping Due to KeyboardInterrupt<<<<<<<<<<<<<<<')
-        
+    finally:
+        # Clean up TensorBoard process
+        if tensorboard_process and tensorboard_process.poll() is None:
+            print("\n🔄 Keeping TensorBoard running for result viewing...")
+            print(f"📊 View results at: http://localhost:{kwargs['tensorboard_port']}")
+            print("💡 To stop TensorBoard later, run: pkill -f tensorboard")
+
+    writer.close()
+
     # Testing
     print('>>>>>>>Testing<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<')
     exp.test(setting, test=1)
-    
+
     torch.cuda.empty_cache()
 
 if __name__ == "__main__":
-    main() 
+    main()
