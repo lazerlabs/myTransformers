@@ -1,0 +1,534 @@
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15186.775390625, mae:105.78067016601562, rmse:123.23463439941406, mape:167.74440002441406, mspe:1743194.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16441.62109375, mae:117.59677124023438, rmse:128.22488403320312, mape:178.5730438232422, mspe:1895781.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:8586.328125, mae:69.39649963378906, rmse:92.66244506835938, mape:126.69036102294922, mspe:1080175.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:6738.81640625, mae:68.0811767578125, rmse:82.09029388427734, mape:132.2003936767578, mspe:1148000.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15313.9599609375, mae:105.82269287109375, rmse:123.74958801269531, mape:173.4300994873047, mspe:1705857.875
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:24143.25390625, mae:144.01658630371094, rmse:155.38099670410156, mape:205.20204162597656, mspe:2278032.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:25611.443359375, mae:146.38739013671875, rmse:160.03575134277344, mape:205.4694061279297, mspe:2264811.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19396.44921875, mae:128.64990234375, rmse:139.27113342285156, mape:193.6800994873047, mspe:2119425.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16749.77734375, mae:118.7300033569336, rmse:129.42092895507812, mape:184.53512573242188, mspe:1954842.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18072.9375, mae:125.50889587402344, rmse:134.4356231689453, mape:189.74383544921875, mspe:2098536.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17718.62890625, mae:124.35821533203125, rmse:133.11134338378906, mape:189.03265380859375, mspe:2089882.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:23006.7890625, mae:142.5399932861328, rmse:151.6798858642578, mape:204.85516357421875, mspe:2394406.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19494.263671875, mae:131.9596710205078, rmse:139.62185668945312, mape:195.7401885986328, mspe:2212781.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19434.38671875, mae:131.91268920898438, rmse:139.4072723388672, mape:195.74024963378906, mspe:2211045.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19341.693359375, mae:131.50001525878906, rmse:139.0744171142578, mape:195.18577575683594, mspe:2200700.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17952.07421875, mae:126.35908508300781, rmse:133.9853515625, mape:190.53819274902344, mspe:2114392.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18118.146484375, mae:127.06791687011719, rmse:134.60366821289062, mape:191.22262573242188, mspe:2125450.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18012.107421875, mae:126.59111785888672, rmse:134.20919799804688, mape:190.78302001953125, mspe:2118129.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17383.77734375, mae:124.15743255615234, rmse:131.84754943847656, mape:188.5796356201172, mspe:2077667.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17444.24609375, mae:124.42037963867188, rmse:132.07666015625, mape:188.83056640625, mspe:2082178.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17444.24609375, mae:124.42037963867188, rmse:132.07666015625, mape:188.83056640625, mspe:2082178.5
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:575551872.0, mae:4115.26416015625, rmse:23990.662109375, mape:91.75314331054688, mspe:1129794.5
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:652275584.0, mae:3624.106201171875, rmse:25539.685546875, mape:79.82251739501953, mspe:800678.6875
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:1412983424.0, mae:4159.53369140625, rmse:37589.671875, mape:88.49690246582031, mspe:913310.125
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:556988416.0, mae:3890.771484375, rmse:23600.6015625, mape:94.76234436035156, mspe:1097182.375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:418369024.0, mae:3829.075927734375, rmse:20454.0703125, mape:87.06729125976562, mspe:884007.0625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:205912480.0, mae:3324.488037109375, rmse:14349.650390625, mape:84.55986022949219, mspe:893187.25
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:176714272.0, mae:3229.202880859375, rmse:13293.3916015625, mape:84.11229705810547, mspe:875088.375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:224948992.0, mae:3412.8525390625, rmse:14998.2998046875, mape:86.88816833496094, mspe:931097.625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:244657552.0, mae:3628.53955078125, rmse:15641.533203125, mape:91.82193756103516, mspe:1012675.8125
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:245106720.0, mae:3589.313720703125, rmse:15655.884765625, mape:89.7711181640625, mspe:982349.5625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:167258992.0, mae:3217.322265625, rmse:12932.865234375, mape:83.93970489501953, mspe:874478.5
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:213424080.0, mae:3494.177001953125, rmse:14609.041015625, mape:89.42963409423828, mspe:971333.8125
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:168900896.0, mae:3260.577880859375, rmse:12996.1875, mape:85.24136352539062, mspe:897131.5625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:162296912.0, mae:3177.198974609375, rmse:12739.580078125, mape:83.3783950805664, mspe:863897.4375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:167692144.0, mae:3285.296875, rmse:12949.6005859375, mape:86.2124252319336, mspe:912103.0
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:163175264.0, mae:3238.020751953125, rmse:12774.0078125, mape:85.18589782714844, mspe:895367.4375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:161053920.0, mae:3219.69287109375, rmse:12690.7021484375, mape:84.8543472290039, mspe:889550.75
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:157158576.0, mae:3183.107177734375, rmse:12536.2900390625, mape:83.98902893066406, mspe:874818.4375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:159811488.0, mae:3197.68115234375, rmse:12641.6572265625, mape:84.180419921875, mspe:878577.375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:161296416.0, mae:3215.07861328125, rmse:12700.2529296875, mape:84.57023620605469, mspe:885256.625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:161296416.0, mae:3215.07861328125, rmse:12700.2529296875, mape:84.57023620605469, mspe:885256.625
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15186.775390625, mae:105.78067016601562, rmse:123.23463439941406, mape:167.74440002441406, mspe:1743194.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16441.62109375, mae:117.59677124023438, rmse:128.22488403320312, mape:178.5730438232422, mspe:1895781.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:8586.328125, mae:69.39649963378906, rmse:92.66244506835938, mape:126.69036102294922, mspe:1080175.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:6738.81640625, mae:68.0811767578125, rmse:82.09029388427734, mape:132.2003936767578, mspe:1148000.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15313.9599609375, mae:105.82269287109375, rmse:123.74958801269531, mape:173.4300994873047, mspe:1705857.875
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:24143.25390625, mae:144.01658630371094, rmse:155.38099670410156, mape:205.20204162597656, mspe:2278032.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:25611.443359375, mae:146.38739013671875, rmse:160.03575134277344, mape:205.4694061279297, mspe:2264811.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19396.44921875, mae:128.64990234375, rmse:139.27113342285156, mape:193.6800994873047, mspe:2119425.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16749.77734375, mae:118.7300033569336, rmse:129.42092895507812, mape:184.53512573242188, mspe:1954842.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18072.9375, mae:125.50889587402344, rmse:134.4356231689453, mape:189.74383544921875, mspe:2098536.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17718.62890625, mae:124.35821533203125, rmse:133.11134338378906, mape:189.03265380859375, mspe:2089882.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:23006.7890625, mae:142.5399932861328, rmse:151.6798858642578, mape:204.85516357421875, mspe:2394406.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19494.263671875, mae:131.9596710205078, rmse:139.62185668945312, mape:195.7401885986328, mspe:2212781.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19434.38671875, mae:131.91268920898438, rmse:139.4072723388672, mape:195.74024963378906, mspe:2211045.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19341.693359375, mae:131.50001525878906, rmse:139.0744171142578, mape:195.18577575683594, mspe:2200700.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17952.07421875, mae:126.35908508300781, rmse:133.9853515625, mape:190.53819274902344, mspe:2114392.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18118.146484375, mae:127.06791687011719, rmse:134.60366821289062, mape:191.22262573242188, mspe:2125450.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18012.107421875, mae:126.59111785888672, rmse:134.20919799804688, mape:190.78302001953125, mspe:2118129.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17383.77734375, mae:124.15743255615234, rmse:131.84754943847656, mape:188.5796356201172, mspe:2077667.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17444.24609375, mae:124.42037963867188, rmse:132.07666015625, mape:188.83056640625, mspe:2082178.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17444.24609375, mae:124.42037963867188, rmse:132.07666015625, mape:188.83056640625, mspe:2082178.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15186.775390625, mae:105.78067016601562, rmse:123.23463439941406, mape:167.74440002441406, mspe:1743194.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16441.62109375, mae:117.59677124023438, rmse:128.22488403320312, mape:178.5730438232422, mspe:1895781.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:8586.328125, mae:69.39649963378906, rmse:92.66244506835938, mape:126.69036102294922, mspe:1080175.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:6738.81640625, mae:68.0811767578125, rmse:82.09029388427734, mape:132.2003936767578, mspe:1148000.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15313.9599609375, mae:105.82269287109375, rmse:123.74958801269531, mape:173.4300994873047, mspe:1705857.875
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:24143.25390625, mae:144.01658630371094, rmse:155.38099670410156, mape:205.20204162597656, mspe:2278032.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:25611.443359375, mae:146.38739013671875, rmse:160.03575134277344, mape:205.4694061279297, mspe:2264811.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19396.44921875, mae:128.64990234375, rmse:139.27113342285156, mape:193.6800994873047, mspe:2119425.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16749.77734375, mae:118.7300033569336, rmse:129.42092895507812, mape:184.53512573242188, mspe:1954842.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18072.9375, mae:125.50889587402344, rmse:134.4356231689453, mape:189.74383544921875, mspe:2098536.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17718.62890625, mae:124.35821533203125, rmse:133.11134338378906, mape:189.03265380859375, mspe:2089882.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:23006.7890625, mae:142.5399932861328, rmse:151.6798858642578, mape:204.85516357421875, mspe:2394406.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19494.263671875, mae:131.9596710205078, rmse:139.62185668945312, mape:195.7401885986328, mspe:2212781.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19434.38671875, mae:131.91268920898438, rmse:139.4072723388672, mape:195.74024963378906, mspe:2211045.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19341.693359375, mae:131.50001525878906, rmse:139.0744171142578, mape:195.18577575683594, mspe:2200700.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17952.07421875, mae:126.35908508300781, rmse:133.9853515625, mape:190.53819274902344, mspe:2114392.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18118.146484375, mae:127.06791687011719, rmse:134.60366821289062, mape:191.22262573242188, mspe:2125450.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18012.107421875, mae:126.59111785888672, rmse:134.20919799804688, mape:190.78302001953125, mspe:2118129.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17383.77734375, mae:124.15743255615234, rmse:131.84754943847656, mape:188.5796356201172, mspe:2077667.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15186.775390625, mae:105.78067016601562, rmse:123.23463439941406, mape:167.74440002441406, mspe:1743194.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16441.62109375, mae:117.59677124023438, rmse:128.22488403320312, mape:178.5730438232422, mspe:1895781.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:8586.328125, mae:69.39649963378906, rmse:92.66244506835938, mape:126.69036102294922, mspe:1080175.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:6738.81640625, mae:68.0811767578125, rmse:82.09029388427734, mape:132.2003936767578, mspe:1148000.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15313.9599609375, mae:105.82269287109375, rmse:123.74958801269531, mape:173.4300994873047, mspe:1705857.875
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:24143.25390625, mae:144.01658630371094, rmse:155.38099670410156, mape:205.20204162597656, mspe:2278032.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:25611.443359375, mae:146.38739013671875, rmse:160.03575134277344, mape:205.4694061279297, mspe:2264811.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19396.44921875, mae:128.64990234375, rmse:139.27113342285156, mape:193.6800994873047, mspe:2119425.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16749.77734375, mae:118.7300033569336, rmse:129.42092895507812, mape:184.53512573242188, mspe:1954842.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18072.9375, mae:125.50889587402344, rmse:134.4356231689453, mape:189.74383544921875, mspe:2098536.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15186.775390625, mae:105.78067016601562, rmse:123.23463439941406, mape:167.74440002441406, mspe:1743194.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16441.62109375, mae:117.59677124023438, rmse:128.22488403320312, mape:178.5730438232422, mspe:1895781.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:8586.328125, mae:69.39649963378906, rmse:92.66244506835938, mape:126.69036102294922, mspe:1080175.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:6738.81640625, mae:68.0811767578125, rmse:82.09029388427734, mape:132.2003936767578, mspe:1148000.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15313.9599609375, mae:105.82269287109375, rmse:123.74958801269531, mape:173.4300994873047, mspe:1705857.875
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:24143.25390625, mae:144.01658630371094, rmse:155.38099670410156, mape:205.20204162597656, mspe:2278032.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:25611.443359375, mae:146.38739013671875, rmse:160.03575134277344, mape:205.4694061279297, mspe:2264811.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19396.44921875, mae:128.64990234375, rmse:139.27113342285156, mape:193.6800994873047, mspe:2119425.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16749.77734375, mae:118.7300033569336, rmse:129.42092895507812, mape:184.53512573242188, mspe:1954842.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18072.9375, mae:125.50889587402344, rmse:134.4356231689453, mape:189.74383544921875, mspe:2098536.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17718.62890625, mae:124.35821533203125, rmse:133.11134338378906, mape:189.03265380859375, mspe:2089882.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:23006.7890625, mae:142.5399932861328, rmse:151.6798858642578, mape:204.85516357421875, mspe:2394406.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19494.263671875, mae:131.9596710205078, rmse:139.62185668945312, mape:195.7401885986328, mspe:2212781.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19434.38671875, mae:131.91268920898438, rmse:139.4072723388672, mape:195.74024963378906, mspe:2211045.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19341.693359375, mae:131.50001525878906, rmse:139.0744171142578, mape:195.18577575683594, mspe:2200700.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17952.07421875, mae:126.35908508300781, rmse:133.9853515625, mape:190.53819274902344, mspe:2114392.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18118.146484375, mae:127.06791687011719, rmse:134.60366821289062, mape:191.22262573242188, mspe:2125450.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18012.107421875, mae:126.59111785888672, rmse:134.20919799804688, mape:190.78302001953125, mspe:2118129.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17383.77734375, mae:124.15743255615234, rmse:131.84754943847656, mape:188.5796356201172, mspe:2077667.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17444.24609375, mae:124.42037963867188, rmse:132.07666015625, mape:188.83056640625, mspe:2082178.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17444.24609375, mae:124.42037963867188, rmse:132.07666015625, mape:188.83056640625, mspe:2082178.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15186.775390625, mae:105.78067016601562, rmse:123.23463439941406, mape:167.74440002441406, mspe:1743194.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:7696.5498046875, mae:70.71772003173828, rmse:87.72998046875, mape:128.8767852783203, mspe:532906.3125
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:7696.5498046875, mae:70.71772003173828, rmse:87.72998046875, mape:128.8767852783203, mspe:532906.3125
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16441.62109375, mae:117.59677124023438, rmse:128.22488403320312, mape:178.5730438232422, mspe:1895781.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:8586.328125, mae:69.39649963378906, rmse:92.66244506835938, mape:126.69036102294922, mspe:1080175.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:6738.81640625, mae:68.0811767578125, rmse:82.09029388427734, mape:132.2003936767578, mspe:1148000.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:15313.9599609375, mae:105.82269287109375, rmse:123.74958801269531, mape:173.4300994873047, mspe:1705857.875
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:24143.25390625, mae:144.01658630371094, rmse:155.38099670410156, mape:205.20204162597656, mspe:2278032.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:25611.443359375, mae:146.38739013671875, rmse:160.03575134277344, mape:205.4694061279297, mspe:2264811.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19396.44921875, mae:128.64990234375, rmse:139.27113342285156, mape:193.6800994873047, mspe:2119425.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:16749.77734375, mae:118.7300033569336, rmse:129.42092895507812, mape:184.53512573242188, mspe:1954842.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18072.9375, mae:125.50889587402344, rmse:134.4356231689453, mape:189.74383544921875, mspe:2098536.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17718.62890625, mae:124.35821533203125, rmse:133.11134338378906, mape:189.03265380859375, mspe:2089882.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:23006.7890625, mae:142.5399932861328, rmse:151.6798858642578, mape:204.85516357421875, mspe:2394406.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19494.263671875, mae:131.9596710205078, rmse:139.62185668945312, mape:195.7401885986328, mspe:2212781.75
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19434.38671875, mae:131.91268920898438, rmse:139.4072723388672, mape:195.74024963378906, mspe:2211045.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:19341.693359375, mae:131.50001525878906, rmse:139.0744171142578, mape:195.18577575683594, mspe:2200700.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17952.07421875, mae:126.35908508300781, rmse:133.9853515625, mape:190.53819274902344, mspe:2114392.0
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18118.146484375, mae:127.06791687011719, rmse:134.60366821289062, mape:191.22262573242188, mspe:2125450.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:18012.107421875, mae:126.59111785888672, rmse:134.20919799804688, mape:190.78302001953125, mspe:2118129.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17383.77734375, mae:124.15743255615234, rmse:131.84754943847656, mape:188.5796356201172, mspe:2077667.25
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17444.24609375, mae:124.42037963867188, rmse:132.07666015625, mape:188.83056640625, mspe:2082178.5
+
+iTransformer_2024-11-25.csv_['close']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:17444.24609375, mae:124.42037963867188, rmse:132.07666015625, mape:188.83056640625, mspe:2082178.5
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:575551872.0, mae:4115.26416015625, rmse:23990.662109375, mape:91.75314331054688, mspe:1129794.5
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:652275584.0, mae:3624.106201171875, rmse:25539.685546875, mape:79.82251739501953, mspe:800678.6875
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:1412983424.0, mae:4159.53369140625, rmse:37589.671875, mape:88.49690246582031, mspe:913310.125
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:556988416.0, mae:3890.771484375, rmse:23600.6015625, mape:94.76234436035156, mspe:1097182.375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:418369024.0, mae:3829.075927734375, rmse:20454.0703125, mape:87.06729125976562, mspe:884007.0625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:205912480.0, mae:3324.488037109375, rmse:14349.650390625, mape:84.55986022949219, mspe:893187.25
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:176714272.0, mae:3229.202880859375, rmse:13293.3916015625, mape:84.11229705810547, mspe:875088.375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:224948992.0, mae:3412.8525390625, rmse:14998.2998046875, mape:86.88816833496094, mspe:931097.625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:244657552.0, mae:3628.53955078125, rmse:15641.533203125, mape:91.82193756103516, mspe:1012675.8125
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:245106720.0, mae:3589.313720703125, rmse:15655.884765625, mape:89.7711181640625, mspe:982349.5625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:167258992.0, mae:3217.322265625, rmse:12932.865234375, mape:83.93970489501953, mspe:874478.5
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:213424080.0, mae:3494.177001953125, rmse:14609.041015625, mape:89.42963409423828, mspe:971333.8125
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:168900896.0, mae:3260.577880859375, rmse:12996.1875, mape:85.24136352539062, mspe:897131.5625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:162296912.0, mae:3177.198974609375, rmse:12739.580078125, mape:83.3783950805664, mspe:863897.4375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:167692144.0, mae:3285.296875, rmse:12949.6005859375, mape:86.2124252319336, mspe:912103.0
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:163175264.0, mae:3238.020751953125, rmse:12774.0078125, mape:85.18589782714844, mspe:895367.4375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:161053920.0, mae:3219.69287109375, rmse:12690.7021484375, mape:84.8543472290039, mspe:889550.75
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:157158576.0, mae:3183.107177734375, rmse:12536.2900390625, mape:83.98902893066406, mspe:874818.4375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:159811488.0, mae:3197.68115234375, rmse:12641.6572265625, mape:84.180419921875, mspe:878577.375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:161296416.0, mae:3215.07861328125, rmse:12700.2529296875, mape:84.57023620605469, mspe:885256.625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:161296416.0, mae:3215.07861328125, rmse:12700.2529296875, mape:84.57023620605469, mspe:885256.625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:575551872.0, mae:4115.26416015625, rmse:23990.662109375, mape:91.75314331054688, mspe:1129794.5
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:652275584.0, mae:3624.106201171875, rmse:25539.685546875, mape:79.82251739501953, mspe:800678.6875
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:1412983424.0, mae:4159.53369140625, rmse:37589.671875, mape:88.49690246582031, mspe:913310.125
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:556988416.0, mae:3890.771484375, rmse:23600.6015625, mape:94.76234436035156, mspe:1097182.375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:418369024.0, mae:3829.075927734375, rmse:20454.0703125, mape:87.06729125976562, mspe:884007.0625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:205912480.0, mae:3324.488037109375, rmse:14349.650390625, mape:84.55986022949219, mspe:893187.25
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:176714272.0, mae:3229.202880859375, rmse:13293.3916015625, mape:84.11229705810547, mspe:875088.375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:224948992.0, mae:3412.8525390625, rmse:14998.2998046875, mape:86.88816833496094, mspe:931097.625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:244657552.0, mae:3628.53955078125, rmse:15641.533203125, mape:91.82193756103516, mspe:1012675.8125
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:245106720.0, mae:3589.313720703125, rmse:15655.884765625, mape:89.7711181640625, mspe:982349.5625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:167258992.0, mae:3217.322265625, rmse:12932.865234375, mape:83.93970489501953, mspe:874478.5
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:213424080.0, mae:3494.177001953125, rmse:14609.041015625, mape:89.42963409423828, mspe:971333.8125
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:168900896.0, mae:3260.577880859375, rmse:12996.1875, mape:85.24136352539062, mspe:897131.5625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:162296912.0, mae:3177.198974609375, rmse:12739.580078125, mape:83.3783950805664, mspe:863897.4375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:167692144.0, mae:3285.296875, rmse:12949.6005859375, mape:86.2124252319336, mspe:912103.0
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:163175264.0, mae:3238.020751953125, rmse:12774.0078125, mape:85.18589782714844, mspe:895367.4375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:161053920.0, mae:3219.69287109375, rmse:12690.7021484375, mape:84.8543472290039, mspe:889550.75
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:157158576.0, mae:3183.107177734375, rmse:12536.2900390625, mape:83.98902893066406, mspe:874818.4375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:159811488.0, mae:3197.68115234375, rmse:12641.6572265625, mape:84.180419921875, mspe:878577.375
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:161296416.0, mae:3215.07861328125, rmse:12700.2529296875, mape:84.57023620605469, mspe:885256.625
+
+iTransformer_2024-11-25.csv_['close', 'volume', 'transactions']_ft3_sl60_pl15_dm512_nh8_el4_df2048_ebfixed_gelu_False_adaptive  
+mse:161296416.0, mae:3215.07861328125, rmse:12700.2529296875, mape:84.57023620605469, mspe:885256.625
+

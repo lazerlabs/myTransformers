@@ -119,7 +119,16 @@ def open_tensorboard_browser(port=6006, delay=3):
 @click.option('--max-seq-len', type=int, default=_config_defaults['max_seq_len'], show_default=True, help='Maximum sequence length for embedding layer (for full_day mode)')
 
 # Model Parameters
-@click.option('--model', type=str, default=_config_defaults['model'], show_default=True, help='Model name')
+@click.option(
+    '--model',
+    type=click.Choice([
+        'iTransformer', 'iInformer', 'iReformer', 'iFlowformer', 'iFlashformer',
+        'Transformer', 'Informer', 'Reformer', 'Flowformer', 'Flashformer'
+    ]),
+    default=_config_defaults['model'],
+    show_default=True,
+    help='Model name (choose from iTransformer, iInformer, iReformer, iFlowformer, iFlashformer, Transformer, Informer, Reformer, Flowformer, Flashformer)'
+)
 @click.option('--d-model', type=int, default=_config_defaults['d_model'], show_default=True, help='Model dimension')
 @click.option('--n-heads', type=int, default=_config_defaults['n_heads'], show_default=True, help='Number of attention heads')
 @click.option('--e-layers', type=int, default=_config_defaults['e_layers'], show_default=True, help='Number of encoder layers')
@@ -253,7 +262,31 @@ def main(**kwargs):
         config._initialize_file_paths()
 
     # Create experiment
-    exp = Exp_Stock_Forecast(config)
+    try:
+        exp = Exp_Stock_Forecast(config)
+    except ValueError as e:
+        # Handle specific model configuration errors gracefully
+        error_msg = str(e)
+        if "does not support variable sequence lengths in full_day mode" in error_msg:
+            print("❌ Model Configuration Error:")
+            print(f"   {config.model} does not support variable sequence lengths in full_day mode.")
+            print("   💡 Suggestions:")
+            print("      1. Use the local iTransformer model (recommended for market data)")
+            print("      2. Switch to sliding_window mode: --mode sliding_window")
+            print("      3. Use a fixed sequence length configuration")
+            sys.exit(1)
+        elif "is a classic (time-based) transformer" in error_msg:
+            print("❌ Model Configuration Error:")
+            print(f"   {config.model} is a classic (time-based) transformer.")
+            print("   💡 For main experiments, only inverted models are allowed.")
+            print("      To run classic models for ablation, set allow_classic_models=True")
+            sys.exit(1)
+        else:
+            # Re-raise other ValueErrors with the traceback
+            raise
+    except Exception as e:
+        # Re-raise other exceptions with their tracebacks
+        raise
     setting = '{}_{}_{}_ft{}_sl{}_pl{}_dm{}_nh{}_el{}_df{}_eb{}_{}_{}_{}'.format(
         config.model,
         os.path.basename(config.train_files[0]) if config.train_files else "unknown",
@@ -270,6 +303,7 @@ def main(**kwargs):
         config.output_attention,
         config.loss_type
     )
+    # Add model name to setting string for clarity in results
 
     # Always extract and save embeddings from the first batch before training
     train_data, train_loader = exp._get_data(flag='train')

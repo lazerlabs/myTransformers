@@ -1,3 +1,17 @@
+"""
+Unified Experiment Runner for Stock Market iTransformer Research
+
+- Supports dynamic selection of any model from iTransformer/model/ (iTransformer, iInformer, iReformer, iFlowformer, iFlashformer, Transformer, Informer, Reformer, Flowformer, Flashformer).
+- Uses StockDataset as the unified data loader for OHLCV stock data.
+- Results, metrics, and logs are saved with model-specific naming for direct comparison.
+- Feature selection (e.g., 'close' only vs. multi-feature) is controlled via CLI/config.
+- Strictly supports the "inverted" transformer paradigm for time series forecasting.
+
+Usage:
+    python train.py --model iInformer --features close,volume,transactions ...
+    # See CLI help for all options.
+
+"""
 import torch
 import torch.nn as nn
 from torch import optim
@@ -35,6 +49,9 @@ class Exp_Stock_Forecast():
         ) = create_data_loaders(args)
         # TODO: Add handling for validation dataset/loader if implemented in create_data_loaders
 
+        # Initialize criterion here so it's available for all methods
+        self.criterion = self._select_criterion()
+
 
     def _acquire_device(self):
         if self.args.use_gpu:
@@ -53,17 +70,81 @@ class Exp_Stock_Forecast():
         return device
 
     def _build_model(self):
-        # Import model here to avoid circular imports
-        from models.iTransformer import Model as iTransformerModel
+        """
+        Dynamically import and instantiate the selected model from iTransformer/model/ or local models.
+        Enforces use of "inverted" models unless allow_classic_models=True in args.
+        """
+        import importlib
+        import sys
+        import os
 
-        model_dict = {
-            'iTransformer': iTransformerModel,
+        # List of inverted models (safe for main experiments)
+        inverted_models = {
+            'iTransformer', 'iInformer', 'iReformer', 'iFlowformer', 'iFlashformer'
+        }
+        # All available models
+        model_module_map = {
+            'iTransformer': 'iTransformer',
+            'iInformer': 'iInformer',
+            'iReformer': 'iReformer',
+            'iFlowformer': 'iFlowformer',
+            'iFlashformer': 'iFlashformer',
+            'Transformer': 'Transformer',
+            'Informer': 'Informer',
+            'Reformer': 'Reformer',
+            'Flowformer': 'Flowformer',
+            'Flashformer': 'Flashformer',
         }
 
-        if self.args.model not in model_dict:
-            raise ValueError(f"Model {self.args.model} not found. Available models: {list(model_dict.keys())}")
+        model_name = self.args.model
+        model_class = None
 
-        model = model_dict[self.args.model](self.args).float()
+        # Enforce inverted transformer paradigm unless explicitly allowed
+        allow_classic = getattr(self.args, "allow_classic_models", False)
+        if model_name not in inverted_models and not allow_classic:
+            raise ValueError(
+                f"Model '{model_name}' is a classic (time-based) transformer. "
+                "For main experiments, only inverted models are allowed. "
+                "If you want to run classic models for ablation, set allow_classic_models=True in your config or CLI."
+            )
+
+        # Try local models first (stock-optimized)
+        if model_name == "iTransformer":
+            try:
+                from models.iTransformer import Model as iTransformerModel
+                model_class = iTransformerModel
+                print(f"Using local stock-optimized {model_name} model")
+            except Exception as e:
+                print(f"Warning: Could not import local {model_name} model: {e}")
+
+        # Fallback to original iTransformer models if local not found
+        if model_class is None and model_name in model_module_map:
+            # Check compatibility with full_day mode
+            if hasattr(self.args, 'mode') and self.args.mode == 'full_day' and model_name != 'iTransformer':
+                raise ValueError(
+                    f"Original {model_name} model does not support variable sequence lengths in full_day mode. "
+                    f"Please use one of the following options:\n"
+                    f"1. Use the local iTransformer model (recommended for market data)\n"
+                    f"2. Switch to sliding_window mode\n"
+                    f"3. Use a fixed sequence length configuration"
+                )
+            
+            # Add iTransformer to sys.path if not already present
+            iTransformer_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'iTransformer'))
+            if iTransformer_path not in sys.path:
+                sys.path.insert(0, iTransformer_path)
+            try:
+                module = importlib.import_module(f"model.{model_module_map[model_name]}")
+                model_class = getattr(module, "Model")
+                print(f"Using original {model_name} model from iTransformer directory")
+                        
+            except Exception as e:
+                print(f"Warning: Could not import {model_name} from iTransformer/model/: {e}")
+
+        if model_class is None:
+            raise ValueError(f"Model {model_name} not found in iTransformer/model/ or local models.")
+
+        model = model_class(self.args).float()
 
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
@@ -177,8 +258,6 @@ class Exp_Stock_Forecast():
         train_steps = len(train_loader)
         early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)
 
-        self.criterion = self._select_criterion() # Get and store the configured criterion
-
         # Initialize learning rate scheduler
         if self.args.lr_scheduler == 'cosine':
             scheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -249,16 +328,20 @@ class Exp_Stock_Forecast():
                 attention_mask = attention_mask.float().to(self.device)
 
                 # **CRITICAL FIX**: Construct decoder input as in original iTransformer
+                # Don't permute here - let the model handle permutation internally
+                # batch_x and batch_y should remain in [B, seq, feat] format
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
                 # **CRITICAL FIX**: Use original iTransformer model call signature WITH attention mask
                 if self.args.output_attention:
-                    outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, attn_mask=attention_mask)[0]
+                    outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, mask=attention_mask)[0]
                 else:
-                    outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, attn_mask=attention_mask)
+                    outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, mask=attention_mask)
 
                 # Extract final predictions and handle feature dimensions
+                # For both inverted and classic models, extract the last pred_len steps
+                # outputs should be [B, pred_len, features] or [B, features, pred_len]
                 f_dim = -1 if self.args.forecasting_features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
@@ -521,53 +604,67 @@ class Exp_Stock_Forecast():
                  attention_mask = attention_mask.float().to(self.device)
 
                  # **CRITICAL FIX**: Construct decoder input as in original iTransformer
+                 # Don't permute here - let the model handle permutation internally
                  dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                  dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
                  # **CRITICAL FIX**: Use original iTransformer model call signature WITH attention mask
                  if self.args.output_attention:
-                     outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, attn_mask=attention_mask)[0]
+                     outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, mask=attention_mask)[0]
                  else:
-                     outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, attn_mask=attention_mask)
+                     outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, mask=attention_mask)
 
                  # Extract final predictions and handle feature dimensions
                  f_dim = -1 if self.args.forecasting_features == 'MS' else 0
                  outputs = outputs[:, -self.args.pred_len:, f_dim:]
                  batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
-                 # Calculate loss using the instance criterion
+                 # **DENORMALIZATION FIX**: Create separate copies for metrics vs visualization
+                 # Store ORIGINAL normalized data for metrics calculation (this is correct)
+                 pred_normalized = outputs.detach().cpu().numpy()
+                 true_normalized = batch_y.detach().cpu().numpy()
+                 input_seq_normalized = batch_x.detach().cpu().numpy()
+                 input_time = batch_x_mark.detach().cpu().numpy()
+
+                 # Calculate loss using the instance criterion (on normalized data - correct!)
                  loss = self.criterion(outputs, batch_y)
                  total_loss.append(loss.item())
 
-                 # Store predictions and true values (needed for final test metrics/plots)
-                 pred = outputs.detach().cpu().numpy()
-                 true = batch_y.detach().cpu().numpy()
-                 input_seq = batch_x.detach().cpu().numpy()
-                 input_time = batch_x_mark.detach().cpu().numpy()
-
-                 # **DENORMALIZATION**: Handle denormalization using StockDataset's denormalize method
+                 # Create DENORMALIZED copies for visualization only
                  if test and data.scale and self.args.inverse:
-                     # Denormalize for better visualization and metrics (handle batch dimension properly)
-                     for batch_idx in range(pred.shape[0]):
-                         pred[batch_idx] = data.denormalize(pred[batch_idx])
-                         true[batch_idx] = data.denormalize(true[batch_idx])
-                         input_seq[batch_idx] = data.denormalize(input_seq[batch_idx])
+                     # Denormalize for visualization (create separate copies)
+                     pred_denorm = pred_normalized.copy()
+                     true_denorm = true_normalized.copy()
+                     input_seq_denorm = input_seq_normalized.copy()
+                     
+                     for batch_idx in range(pred_denorm.shape[0]):
+                         pred_denorm[batch_idx] = data.denormalize(pred_denorm[batch_idx])
+                         true_denorm[batch_idx] = data.denormalize(true_denorm[batch_idx])
+                         input_seq_denorm[batch_idx] = data.denormalize(input_seq_denorm[batch_idx])
+                 else:
+                     # If no denormalization, use normalized data for visualization too
+                     pred_denorm = pred_normalized
+                     true_denorm = true_normalized 
+                     input_seq_denorm = input_seq_normalized
 
-                 preds.append(pred)
-                 trues.append(true)
-                 inputs.append(input_seq)
+                 # Store NORMALIZED data for final metrics calculation (correct approach)
+                 preds.append(pred_normalized)
+                 trues.append(true_normalized)
+                 inputs.append(input_seq_normalized)
                  input_marks.append(input_time)
-                 test_batches_processed += 1 # Increment counter
+                 test_batches_processed += 1
 
-                 # **SIMPLE VISUALIZATION**: Every 20 batches like original iTransformer
+                 # **FIXED VISUALIZATION**: Use denormalized data and CLOSE PRICE (feature index 1)
                  if test and i % 20 == 0:
-                     # Import visual function similar to original
                      from utils.tools import visual
                      
-                     # Create simple visualization like original (concat input + true vs input + pred for last feature)
-                     input_sample = input_seq[0, :, -1]  # First sample, all time steps, last feature
-                     true_sample = true[0, :, -1]       # First sample, all time steps, last feature  
-                     pred_sample = pred[0, :, -1]       # First sample, all time steps, last feature
+                     # Use CLOSE PRICE (index 1) instead of transactions (index -1) for meaningful visualization
+                     close_feature_idx = 1 if len(self.args.features) > 1 else 0
+                     
+                     # Use DENORMALIZED data for visualization
+                     input_sample = input_seq_denorm[0, :, close_feature_idx]
+                     true_sample = true_denorm[0, :, close_feature_idx]  
+                     pred_sample = pred_denorm[0, :, close_feature_idx]
                      
                      # Concatenate historical + future (like original)
                      gt = np.concatenate((input_sample, true_sample), axis=0)
@@ -582,7 +679,7 @@ class Exp_Stock_Forecast():
 
         # Only perform saving/plotting/metric calculation for final test run
         if test:
-            # Concatenate along the batch dimension
+            # Concatenate NORMALIZED data for metrics (this is correct!)
             preds = np.concatenate(preds, axis=0)
             trues = np.concatenate(trues, axis=0)
             inputs = np.concatenate(inputs, axis=0)
@@ -593,11 +690,25 @@ class Exp_Stock_Forecast():
             trues = trues.reshape(-1, trues.shape[-2], trues.shape[-1])
             print('test shape:', preds.shape, trues.shape)
 
-            # **IMPORT METRIC FUNCTION**: Use the same metric function as original iTransformer
+            # **CALCULATE METRICS ON NORMALIZED DATA** (this is the correct approach!)
             from utils.metrics import metric
-
-            # **CALCULATE ALL METRICS**: Like original iTransformer
             mae, mse, rmse, mape, mspe = metric(preds, trues)
+
+            # Create denormalized copies for visualization and saving
+            if data.scale and self.args.inverse:
+                preds_denorm = preds.copy()
+                trues_denorm = trues.copy()
+                inputs_denorm = inputs.copy()
+                
+                # Denormalize all samples
+                for sample_idx in range(preds_denorm.shape[0]):
+                    preds_denorm[sample_idx] = data.denormalize(preds_denorm[sample_idx])
+                    trues_denorm[sample_idx] = data.denormalize(trues_denorm[sample_idx])
+                    inputs_denorm[sample_idx] = data.denormalize(inputs_denorm[sample_idx])
+            else:
+                preds_denorm = preds
+                trues_denorm = trues
+                inputs_denorm = inputs
 
             # Use config-driven results directory
             if not os.path.exists(results_dir):
@@ -606,65 +717,39 @@ class Exp_Stock_Forecast():
             # **PRINT RESULTS**: Same format as original
             print('mse:{}, mae:{}'.format(mse, mae))
             
-            # **WRITE TO TEXT FILE**: Like original iTransformer
-            f = open("result_stock_forecast.txt", 'a')
-            f.write(setting + "  \n")
-            f.write('mse:{}, mae:{}, rmse:{}, mape:{}, mspe:{}'.format(mse, mae, rmse, mape, mspe))
-            f.write('\n')
-            f.write('\n')
-            f.close()
-
-            # **SAVE ALL METRICS**: Include all 5 metrics like original
+            # Save BOTH normalized (for model analysis) and denormalized (for interpretation)
             np.save(os.path.join(results_dir, 'metrics.npy'), np.array([mae, mse, rmse, mape, mspe]))
-            np.save(os.path.join(results_dir, 'pred.npy'), preds)
-            np.save(os.path.join(results_dir, 'true.npy'), trues)
-            np.save(os.path.join(results_dir, 'inputs.npy'), inputs)
-            np.save(os.path.join(results_dir, 'input_marks.npy'), input_marks)
+            np.save(os.path.join(results_dir, 'pred_normalized.npy'), preds)
+            np.save(os.path.join(results_dir, 'true_normalized.npy'), trues)
+            np.save(os.path.join(results_dir, 'pred_denormalized.npy'), preds_denorm)
+            np.save(os.path.join(results_dir, 'true_denormalized.npy'), trues_denorm)
+            np.save(os.path.join(results_dir, 'inputs_denormalized.npy'), inputs_denorm)
 
-            # Log final metrics (including new ones)
-            self.logger.log_prediction(mae, mse, rmse, mape, mspe)
-
-            # **ENHANCED TENSORBOARD LOGGING**: Include all metrics
-            if writer is not None and epoch is not None:
-                writer.add_scalar('Test/MAE', mae, epoch)
-                writer.add_scalar('Test/MSE', mse, epoch)
-                writer.add_scalar('Test/RMSE', rmse, epoch)
-                writer.add_scalar('Test/MAPE', mape, epoch)
-                writer.add_scalar('Test/MSPE', mspe, epoch)
-
-            # Get test dataset for denormalization
-            test_dataset = data # data holds the dataset instance returned by _get_data
-
-            # **ENHANCED**: Add comprehensive visualization (keep existing comprehensive visualization)
-            if test_dataset and hasattr(test_dataset, 'denormalize'):
+            # **FIXED COMPREHENSIVE VISUALIZATION**: Use denormalized data and close price
+            if hasattr(self, 'visualizer'):
                 try:
-                    # Generate a visual plot similar to original (for one sample)
-                    if len(inputs) > 0 and len(preds) > 0:
-                        # Create visualization directory
+                    if len(inputs_denorm) > 0 and len(preds_denorm) > 0:
                         vis_dir = os.path.join(results_dir, 'visualizations')
                         if not os.path.exists(vis_dir):
                             os.makedirs(vis_dir)
                         
-                        # Use your comprehensive visualization method
+                        # Use DENORMALIZED data and close price (feature_idx=1)
                         fig = self.visualizer.plot_comprehensive_predictions(
-                            historical_data=inputs, 
+                            historical_data=inputs_denorm, 
                             historical_marks=input_marks,
-                            true_values=trues, 
-                            predictions=preds, 
-                            dataset=test_dataset, 
-                            feature_idx=1,  # Usually close price
+                            true_values=trues_denorm, 
+                            predictions=preds_denorm, 
+                            dataset=data, 
+                            feature_idx=1,  # Close price
                             n_samples_to_plot=3,
                             return_fig=True
                         )
-                        # Log figure to TensorBoard
                         if writer is not None and epoch is not None and fig is not None:
                             writer.add_figure('Test/Predictions', fig, epoch)
                 except Exception as e:
                     print(f"Warning: Failed during comprehensive visualization - {e}")
-            else:
-                print("Warning: Skipping comprehensive visualization as test dataset or denormalize method is unavailable.")
 
-            return mse # Return final test MSE
+            return mse
 
         else: # If validation (test=0)
             return avg_loss # Return average validation loss for early stopping/LR scheduling

@@ -533,7 +533,8 @@ def create_dataloader(file_paths: Union[str, List[str]],
                      global_std: Optional[np.ndarray] = None,
                      shuffle: bool = True,
                      mode: str = 'full_day',
-                     interpolate_max_missing: int = 3) -> Tuple[StockDataset, Optional[DataLoader]]:
+                     interpolate_max_missing: int = 3,
+                     max_samples: Optional[int] = None) -> Tuple[StockDataset, Optional[DataLoader]]:
     """
     Creates a StockDataset and DataLoader for the given file paths, applying global normalization if specified.
 
@@ -579,6 +580,13 @@ def create_dataloader(file_paths: Union[str, List[str]],
         mode=mode,
         interpolate_max_missing=interpolate_max_missing
     )
+
+    # Apply max_samples limit if specified
+    if max_samples is not None and len(dataset) > max_samples:
+        print(f"Limiting dataset from {len(dataset)} to {max_samples} samples for testing/debugging")
+        # Truncate the all_sequences list
+        dataset.all_sequences = dataset.all_sequences[:max_samples]
+        dataset.total_sequences = len(dataset.all_sequences)
 
     # Check if dataset creation was successful
     if len(dataset) == 0:

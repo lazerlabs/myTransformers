@@ -1,3 +1,10 @@
+import sys
+import os
+# Ensure iTransformer directory is in sys.path for utils imports
+#itransformer_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'iTransformer'))
+#if itransformer_dir not in sys.path:
+#    sys.path.insert(0, itransformer_dir)
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,6 +16,11 @@ class Model(nn.Module):
     """
     Stock Market Prediction using iTransformer
     Modified from: https://arxiv.org/abs/2310.06625
+    
+    Key differences from original:
+    - Supports variable sequence lengths through adaptive embedding
+    - Optimized for market data (OHLCV) features
+    - Handles both sliding_window and full_day modes
     """
 
     def __init__(self, configs):
@@ -17,23 +29,29 @@ class Model(nn.Module):
         self.pred_len = configs.pred_len
         self.output_attention = configs.output_attention
         self.use_norm = configs.use_norm
-        self.temperature = getattr(configs, 'temperature', 0.0)  # Default to 0.0 if not present
+        self.temperature = getattr(configs, 'temperature', 0.0)
 
-        # Embedding
-        # In stock data, each time step contains multiple features (OHLCV)
-        # We treat each feature as a token
-        # Use max_seq_len for full_day mode or seq_len for sliding_window mode
-        max_len = getattr(configs, 'max_seq_len', 2000) if getattr(configs, 'mode', 'sliding_window') == 'full_day' else configs.seq_len
+        # Get the maximum sequence length for initialization
+        # For full_day mode, use max_seq_len; for sliding_window, use seq_len
+        self.max_seq_len = getattr(configs, 'max_seq_len', 2000) if getattr(configs, 'mode', 'sliding_window') == 'full_day' else configs.seq_len
+        self.mode = getattr(configs, 'mode', 'sliding_window')
+        
+        # Calculate total input features (data features + time features)
+        # Time features are added as additional tokens in the embedding layer
+        self.n_features = configs.enc_in
+        
+        # Embedding - the key insight of iTransformer is here
+        # We embed from sequence_length to d_model for each feature
+        # For variable length support, we'll handle padding/truncation in forward pass
         self.enc_embedding = DataEmbedding_inverted(
-            configs.enc_in,  # Number of input features, not sequence length
-            configs.d_model, 
+            self.max_seq_len,  # c_in = sequence length dimension 
+            configs.d_model,   # Output dimension = model dimension
             configs.embed, 
             configs.freq,
-            configs.dropout,
-            max_len=max_len
+            configs.dropout
         )
 
-        # Encoder-only architecture
+        # Encoder-only architecture (same as original)
         self.encoder = Encoder(
             [
                 EncoderLayer(
@@ -57,63 +75,92 @@ class Model(nn.Module):
         )
 
         # Projection layer to predict future values
-        self.projection = nn.Linear(configs.d_model, configs.pred_len, bias=True)
+        # Projects from d_model to pred_len for each feature
+        self.projector = nn.Linear(configs.d_model, configs.pred_len, bias=True)
 
-    def get_embeddings(self, x_enc, x_mark_enc):
-        """Get embeddings for input data. Handles both 4D [batch, stocks, seq, features] and 3D [batch, seq, features] inputs."""
-        # Check input dimensions
-        if x_enc.ndim == 4:
-            # Original 4D handling
-            batch_size, num_stocks, seq_len, features = x_enc.shape
-            x_enc_reshaped = x_enc.reshape(-1, seq_len, features)
-            x_mark_enc_reshaped = x_mark_enc.reshape(-1, x_mark_enc.shape[2], x_mark_enc.shape[3])
-            reshape_back = True
-        elif x_enc.ndim == 3:
-            # Handle 3D input (e.g., from test_run.py for a single sequence)
-            batch_size, seq_len, features = x_enc.shape
-            num_stocks = 1 # Assume single stock/sequence
-            x_enc_reshaped = x_enc
-            x_mark_enc_reshaped = x_mark_enc
-            reshape_back = False # No need to reshape back if input was 3D
-        else:
-            raise ValueError(f"Unsupported input dimension for x_enc: {x_enc.ndim}. Expected 3 or 4.")
-
-        # Apply normalization to the reshaped data
-        if self.use_norm:
-            means = x_enc_reshaped.mean(1, keepdim=True).detach()
-            x_enc = x_enc - means
-            stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
-            x_enc_reshaped = x_enc_reshaped - means
-            stdev = torch.sqrt(torch.var(x_enc_reshaped, dim=1, keepdim=True, unbiased=False) + 1e-5)
-            x_enc_reshaped /= stdev
-        else:
-            # If not using norm, ensure we use the reshaped variable name
-             stdev = None # Define stdev as None if not used, for consistency if needed later
-             means = None # Define means as None if not used
-
-        # Get embeddings from embedding layer using the potentially reshaped data
-        embeddings = self.enc_embedding(x_enc_reshaped, x_mark_enc_reshaped)
-
-        # Reshape back only if input was 4D
-        if reshape_back:
-            embeddings = embeddings.reshape(batch_size, num_stocks, *embeddings.shape[1:])
-        # If input was 3D, embeddings shape is already [batch_size, features, d_model], which is fine.
-
-        return embeddings
-
-    def apply_temperature_sampling(self, logits, temperature):
+    def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec, attn_mask=None, temperature=None):
         """
-        Apply temperature sampling to the model outputs.
+        Forecasting function that implements the iTransformer approach.
         
         Args:
-            logits: Model outputs before final activation
-            temperature: Temperature parameter (0.0 = deterministic, >0 = stochastic)
-            
+            x_enc: [Batch, Time, Features] - Input sequences
+            x_mark_enc: [Batch, Time, TimeFeatures] - Time features 
+            x_dec: Not used in encoder-only architecture
+            x_mark_dec: Not used in encoder-only architecture
+            attn_mask: Attention mask for padded sequences
+            temperature: Temperature for sampling (if specified)
+        
         Returns:
-            Sampled outputs with temperature applied
+            dec_out: [Batch, PredLen, Features] - Predictions
+            attns: Attention weights (if output_attention=True)
         """
+        batch_size, seq_len, n_features = x_enc.shape
+        
+        # Handle variable sequence lengths by padding/truncating to max_seq_len
+        if seq_len != self.max_seq_len:
+            if seq_len > self.max_seq_len:
+                # Truncate if too long
+                x_enc = x_enc[:, -self.max_seq_len:, :]
+                if x_mark_enc is not None:
+                    x_mark_enc = x_mark_enc[:, -self.max_seq_len:, :]
+                if attn_mask is not None:
+                    attn_mask = attn_mask[:, -self.max_seq_len:]
+                seq_len = self.max_seq_len
+            else:
+                # Pad if too short - use zero padding at the beginning
+                pad_length = self.max_seq_len - seq_len
+                x_enc = F.pad(x_enc, (0, 0, pad_length, 0), value=0.0)
+                if x_mark_enc is not None:
+                    x_mark_enc = F.pad(x_mark_enc, (0, 0, pad_length, 0), value=0.0)
+                if attn_mask is not None:
+                    # For attention mask, pad with False (invalid tokens)
+                    attn_mask = F.pad(attn_mask, (pad_length, 0), value=False)
+                seq_len = self.max_seq_len
+
+        # Apply normalization (Non-stationary Transformer approach)
+        means, stdev = None, None
+        if self.use_norm:
+            means = x_enc.mean(1, keepdim=True).detach()
+            x_enc = x_enc - means
+            stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+            x_enc /= stdev
+
+        # Get dimensions: B L N -> B N L (after permutation in embedding)
+        B, L, N = x_enc.shape
+        
+        # Embedding: B L N -> B N E (key iTransformer transformation)
+        enc_out = self.enc_embedding(x_enc, x_mark_enc)
+        
+        # Handle attention mask for encoder
+        # In iTransformer, attention is over features, not time
+        # So we don't need to modify the mask for feature-wise attention
+        
+        # Encoder processing: B N E -> B N E
+        enc_out, attns = self.encoder(enc_out, attn_mask=None)  # No masking in feature space
+
+        # Projection: B N E -> B N S
+        dec_out = self.projector(enc_out)
+        
+        # Permute back to time-first: B N S -> B S N
+        dec_out = dec_out.permute(0, 2, 1)
+        
+        # Only keep the original features (filter out time features if they were added)
+        dec_out = dec_out[:, :, :N]
+
+        # Apply temperature sampling if specified
+        if temperature is not None and temperature > 0.0:
+            dec_out = self.apply_temperature_sampling(dec_out, temperature)
+
+        # De-normalization (if normalization was applied)
+        if self.use_norm and means is not None and stdev is not None:
+            dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+            dec_out = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+
+        return dec_out, attns
+
+    def apply_temperature_sampling(self, logits, temperature):
+        """Apply temperature sampling to the model outputs."""
         if temperature <= 0.0:
-            # Deterministic mode - return logits as-is
             return logits
         
         # Apply temperature scaling
@@ -127,108 +174,33 @@ class Model(nn.Module):
         return scaled_logits
 
     def set_temperature(self, temperature):
-        """
-        Set the temperature for inference sampling.
-        
-        Args:
-            temperature (float): Temperature value (0.0 = deterministic, >0 = stochastic)
-        """
+        """Set the temperature for inference sampling."""
         self.temperature = temperature
 
-    def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec, attn_mask=None, temperature=None):
-        # Handle potential 3D input [batch, seq, features] vs 4D [batch, stocks, seq, features]
-        if x_enc.ndim == 4:
-            # Original 4D handling
-            batch_size, num_stocks, seq_len, features = x_enc.shape
-            x_enc_reshaped = x_enc.reshape(-1, seq_len, features)
-            x_mark_enc_reshaped = x_mark_enc.reshape(-1, x_mark_enc.shape[2], x_mark_enc.shape[3])
-            
-            # Reshape attention mask if provided
-            if attn_mask is not None:
-                attn_mask_reshaped = attn_mask.reshape(-1, attn_mask.shape[-1])  # [batch*stocks, seq_len]
-            else:
-                attn_mask_reshaped = None
-            reshape_back = True
-        elif x_enc.ndim == 3:
-            # Handle 3D input
-            batch_size, seq_len, features = x_enc.shape
-            num_stocks = 1 # Assume single stock/sequence
-            x_enc_reshaped = x_enc
-            x_mark_enc_reshaped = x_mark_enc # Assuming x_mark_enc is also 3D [batch, seq, time_features]
-            attn_mask_reshaped = attn_mask  # Pass through as-is for 3D input
-            reshape_back = False # No need to reshape back if input was 3D
-        else:
-            raise ValueError(f"Unsupported input dimension for x_enc in forecast: {x_enc.ndim}. Expected 3 or 4.")
-
-        # Apply normalization to the reshaped data
-        if self.use_norm:
-            means = x_enc_reshaped.mean(1, keepdim=True).detach()
-            x_enc = x_enc - means
-            stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
-            x_enc_reshaped = x_enc_reshaped - means
-            stdev = torch.sqrt(torch.var(x_enc_reshaped, dim=1, keepdim=True, unbiased=False) + 1e-5)
-            x_enc_reshaped /= stdev
-        else:
-             # Define stdev/means as None if not used, for de-normalization step
-             stdev = None
-             means = None
-
-        # Get the actual number of features from the data
-        _, _, N = x_enc_reshaped.shape # B L N 
-        # B: batch_size; E: d_model; 
-        # L: seq_len; S: pred_len;
-        # N: number of variate (tokens), can also includes covariates
-
-        # Embedding
-        # B L N -> B N E                (B L N -> B L E in the vanilla Transformer)
-        enc_out = self.enc_embedding(x_enc_reshaped, x_mark_enc_reshaped) # covariates (e.g timestamp) can be also embedded as tokens
-        
-        # Create attention mask for the encoder if provided
-        # The iTransformer inverts the dimensions, so we need to handle this carefully
-        encoder_attn_mask = None
-        if attn_mask_reshaped is not None:
-            # For iTransformer, we're doing feature-wise attention not time-wise
-            # The attention mask [batch, seq_len] indicates which time steps are valid
-            # Since we embed across time dimension, we need to convert this to feature space
-            # For now, we'll disable masking in feature space as it doesn't directly apply
-            # The masking was primarily for handling variable sequence lengths in time dimension
-            # which is handled during embedding/preprocessing
-            encoder_attn_mask = None  # Disable for feature-wise attention
-            
-            # Note: If specific feature masking is needed, it would require a different approach
-            # than temporal masking used in vanilla transformers
-            
-        # B N E -> B N E                (B L E -> B L E in the vanilla Transformer)
-        # the dimensions of embedded time series has been inverted, and then processed by native attn, layernorm and ffn modules
-        enc_out, attns = self.encoder(enc_out, attn_mask=encoder_attn_mask)
-
-        # B N E -> B N S -> B S N 
-        dec_out = self.projection(enc_out).permute(0, 2, 1)[:, :, :N] # filter the covariates
-        
-        # Apply temperature sampling if enabled
-        if temperature is None:
-            temperature = self.temperature
-        dec_out = self.apply_temperature_sampling(dec_out, temperature)
-
-        # De-Normalization
-        if self.use_norm and means is not None and stdev is not None:
-             # De-Normalization from Non-stationary Transformer
-             dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
-             dec_out = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
-
-        # Reshape back only if input was 4D
-        if reshape_back:
-             # Reshape back: [batch*stocks, pred_len, features] -> [batch, stocks, pred_len, features]
-             dec_out = dec_out.reshape(batch_size, num_stocks, self.pred_len, features)
-        # If input was 3D, dec_out shape is already [batch_size, pred_len, features]
-
-        if self.output_attention:
-            return dec_out, attns
-        else:
-            return dec_out
-
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None, attn_mask=None, temperature=None):
-        # Note: Added compatibility with original iTransformer signature while keeping custom features
-        # x_dec and x_mark_dec are expected by original iTransformer but not used in encoder-only architecture
-        dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec, attn_mask=attn_mask, temperature=temperature)
-        return dec_out  # [batch, stocks, pred_len, features] or [batch, pred_len, features]
+        """
+        Forward pass with compatibility for both original iTransformer signature 
+        and custom features.
+        
+        Args:
+            x_enc: Input sequences [Batch, Time, Features]
+            x_mark_enc: Time features [Batch, Time, TimeFeatures] 
+            x_dec: Decoder input (not used in encoder-only)
+            x_mark_dec: Decoder time features (not used)
+            mask: Legacy parameter for compatibility
+            attn_mask: Attention mask for variable length sequences
+            temperature: Temperature for sampling (overrides model default)
+        
+        Returns:
+            Predictions [Batch, PredLen, Features]
+        """
+        # Use provided temperature or fall back to model default
+        temp = temperature if temperature is not None else self.temperature
+        
+        # Forecast
+        dec_out, attns = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec, attn_mask, temp)
+        
+        if self.output_attention:
+            return dec_out[:, -self.pred_len:, :], attns
+        else:
+            return dec_out[:, -self.pred_len:, :]

@@ -63,6 +63,7 @@ class StockPredictionConfig:
     activation: str = 'gelu'
     output_attention: bool = False
     use_norm: bool = True
+    allow_classic_models: bool = False  # Allow classic (non-inverted) models for comparison
     
     # Inference Parameters
     temperature: float = 0.0  # Temperature for inference sampling (0.0 = deterministic, >0 = stochastic)
@@ -126,6 +127,10 @@ class StockPredictionConfig:
     # Logging Parameters
     log_every_n_iterations: int = 100  # Log detailed metrics every N iterations
     save_iteration_metrics: bool = True  # Save iteration-level metrics for visualization
+    
+    # Debug/Testing Parameters
+    max_train_samples: Optional[int] = None  # Limit training samples for testing (None = unlimited)
+    max_test_samples: Optional[int] = None   # Limit test samples for testing (None = unlimited)
     
     def __post_init__(self):
         # Initialize file paths - this can be called again after CLI overrides
