@@ -260,6 +260,10 @@ def main(**kwargs):
     # Reinitialize file paths if data_dir was changed via CLI
     if kwargs.get('data_dir') is not None:
         config._initialize_file_paths()
+    
+    # Update model dimensions if features were changed via CLI
+    if kwargs.get('features') is not None:
+        config._update_model_dimensions()
 
     # Create experiment
     try:

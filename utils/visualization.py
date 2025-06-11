@@ -340,9 +340,15 @@ class StockVisualizer:
             print("Warning: Dataset object does not have a 'denormalize' method. Cannot plot.")
             return None
             
+        if not hasattr(dataset, 'features'):
+            raise ValueError("Dataset object does not expose a 'features' attribute; cannot map feature indices correctly.")
+        # Sync visualizer feature list with the dataset actually used for this plot
+        self.feature_names = list(dataset.features)
+
+        # If the caller didn't pass a valid index, fall back to the first feature
         if feature_idx >= len(self.feature_names):
-            print(f"Warning: feature_idx {feature_idx} is out of bounds for features {self.feature_names}. Skipping plot.")
-            return None
+            print(f"[WARN] Requested feature_idx={feature_idx} but dataset only has {len(self.feature_names)} feature(s). Falling back to index 0.")
+            feature_idx = 0
 
         num_total_sequences = historical_data.shape[0]
         num_plots = min(n_samples_to_plot, num_total_sequences)
@@ -351,6 +357,9 @@ class StockVisualizer:
             return None
 
         print(f"Plotting {num_plots} comprehensive sequences for feature '{self.feature_names[feature_idx]}'")
+
+        # New: container to collect data for optional CSV export
+        plot_data_records = []  # Each record is a dict for DataFrame rows
 
         # Try to extract available ticker names from test files for labeling
         available_tickers = self._get_available_tickers(dataset)
@@ -367,28 +376,30 @@ class StockVisualizer:
         for plot_idx, seq_idx in enumerate(sample_indices):
             ax = axes[plot_idx, 0]
 
-            # Get historical sequence
-            hist_seq = historical_data[seq_idx, :, feature_idx]  # [seq_len]
+            # Get time marks for timestamp reconstruction
             hist_time_marks = historical_marks[seq_idx, :, :]    # [seq_len, time_features]
             
-            # Get true and predicted future sequences
-            true_seq = true_values[seq_idx, :, feature_idx]      # [pred_len]
-            pred_seq = predictions[seq_idx, :, feature_idx]      # [pred_len]
+            # Determine the real (unpadded) sequence length using time marks
+            if hist_time_marks.ndim == 2 and hist_time_marks.shape[1] > 0:
+                # Rows that are entirely zero correspond to padding that we added in the dataloader
+                real_seq_mask = ~np.all(hist_time_marks == 0, axis=1)
+                real_seq_len = int(real_seq_mask.sum())
+            else:
+                real_seq_len = hist_time_marks.shape[0]
+            if real_seq_len == 0:
+                print(f"[WARN] Sequence {seq_idx} appears to be completely padded. Skipping plot.")
+                continue
 
-            # Denormalize data
-            num_features = len(self.feature_names)
-            seq_len = hist_seq.shape[0]
-            pred_len = true_seq.shape[0]
+            # Slice to the real part only (discard padding before denormalisation)
+            hist_full_features = historical_data[seq_idx, :real_seq_len, :]  # [real_seq_len, all_features]
+            true_full_features = true_values[seq_idx, :, :]                  # [pred_len, all_features]
+            pred_full_features = predictions[seq_idx, :, :]                  # [pred_len, all_features]
 
-            # Create full feature arrays for denormalization
-            hist_full_features = np.zeros((seq_len, num_features))
-            true_full_features = np.zeros((pred_len, num_features))
-            pred_full_features = np.zeros((pred_len, num_features))
-            
-            hist_full_features[:, feature_idx] = hist_seq
-            true_full_features[:, feature_idx] = true_seq
-            pred_full_features[:, feature_idx] = pred_seq
+            # Update variables for downstream use
+            seq_len = real_seq_len
+            pred_len = true_full_features.shape[0]
 
+            # Denormalise
             try:
                 hist_denorm_full = dataset.denormalize(hist_full_features)
                 true_denorm_full = dataset.denormalize(true_full_features)
@@ -399,27 +410,27 @@ class StockVisualizer:
                 pred_denorm = pred_denorm_full[:, feature_idx]
             except Exception as e:
                 print(f"Warning: Failed to denormalize data for plot {plot_idx}: {e}. Using normalized data.")
-                hist_denorm = hist_seq
-                true_denorm = true_seq
-                pred_denorm = pred_seq
+                hist_denorm = hist_full_features[:, feature_idx]
+                true_denorm = true_full_features[:, feature_idx]
+                pred_denorm = pred_full_features[:, feature_idx]
 
-            # Reconstruct actual timestamps from time features
-            actual_timestamps = self._reconstruct_timestamps(hist_time_marks, seq_len, pred_len)
+            # Reconstruct actual timestamps from time features (pass trimmed marks)
+            actual_timestamps = self._reconstruct_timestamps(hist_time_marks[:real_seq_len], seq_len, pred_len)
             
-            # Create continuous x-axis
+            # Create continuous x-axis (historical + future)
             x_hist = np.arange(seq_len)
             x_future = np.arange(seq_len, seq_len + pred_len)
             
             # Plot historical data
             ax.plot(x_hist, hist_denorm, 
-                   label='Historical Data (60 minutes)', 
+                   label=f'Historical Data ({seq_len} minutes)', 
                    color='#1f77b4', 
                    linewidth=2, 
                    alpha=0.8)
             
             # Plot true future values
             ax.plot(x_future, true_denorm, 
-                   label='True Future (15 minutes)', 
+                   label='True Future', 
                    color='#2ca02c', 
                    linewidth=2.5, 
                    marker='o', 
@@ -441,26 +452,24 @@ class StockVisualizer:
             ax.text(seq_len-0.5, ax.get_ylim()[1]*0.95, 'Prediction\nStarts Here', 
                    rotation=0, horizontalalignment='center', verticalalignment='top', 
                    fontsize=10, alpha=0.7, bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8))
-
+            
             # Calculate and display metrics for this sequence
             mse = np.mean((pred_denorm - true_denorm) ** 2)
             mae = np.mean(np.abs(pred_denorm - true_denorm))
             mape = np.mean(np.abs((pred_denorm - true_denorm) / (true_denorm + 1e-8))) * 100
             
-            # Determine ticker name for this sample - use actual ticker from dataset
+            # Determine ticker name
             try:
-                # Get the actual ticker from the dataset for this sample
                 ticker_name = dataset.get_ticker_for_sequence(seq_idx)
             except Exception as e:
                 print(f"Warning: Could not get ticker for sequence {seq_idx}: {e}")
                 ticker_name = self._get_ticker_for_sample(seq_idx, available_tickers, num_total_sequences)
             
-            # Set title with metrics and sample info
-            title_text = f'Stock: {ticker_name} | Sample {seq_idx} | {self.feature_names[feature_idx].title()} Price\n'
-            title_text += f'MSE: {mse:.4f} | MAE: {mae:.4f} | MAPE: {mape:.2f}%'
+            # Title
+            title_text = (f'Stock: {ticker_name} | Sample {seq_idx} | {self.feature_names[feature_idx].title()} Price\n'
+                           f'MSE: {mse:.4f} | MAE: {mae:.4f} | MAPE: {mape:.2f}%')
             if actual_timestamps['start_time']:
                 title_text += f' | Start: {actual_timestamps["start_time"]}'
-            
             ax.set_title(title_text, fontsize=13, fontweight='bold')
             
             ax.set_xlabel('Time Steps (Minutes)', fontsize=12)
@@ -491,17 +500,64 @@ class StockVisualizer:
                    verticalalignment='top', color=performance_color,
                    bbox=dict(boxstyle="round,pad=0.3", facecolor=performance_color, alpha=0.2))
 
+            # -------------------------------
+            # NEW: collect data for CSV export
+            # -------------------------------
+            # Historical data
+            for step_idx, val in enumerate(hist_denorm):
+                plot_data_records.append({
+                    'sequence_idx': int(seq_idx),
+                    'ticker': str(ticker_name),
+                    'data_type': 'historical',
+                    'time_step': int(step_idx),
+                    'value': float(val)
+                })
+            # True future values
+            for fut_idx, val in enumerate(true_denorm):
+                plot_data_records.append({
+                    'sequence_idx': int(seq_idx),
+                    'ticker': str(ticker_name),
+                    'data_type': 'true',
+                    'time_step': int(seq_len + fut_idx),
+                    'value': float(val)
+                })
+            # Predicted future values
+            for fut_idx, val in enumerate(pred_denorm):
+                plot_data_records.append({
+                    'sequence_idx': int(seq_idx),
+                    'ticker': str(ticker_name),
+                    'data_type': 'predicted',
+                    'time_step': int(seq_len + fut_idx),
+                    'value': float(val)
+                })
+
         plt.tight_layout(rect=[0, 0.03, 1, 0.97])
         fig.suptitle(f'Stock Prediction Analysis: {self.feature_names[feature_idx].title()} Price Forecasting', 
                     fontsize=16, fontweight='bold')
         
         try:
-            save_path = os.path.join(self.save_dir, f'comprehensive_predictions_{self.feature_names[feature_idx]}.png')
-            plt.savefig(save_path, dpi=150, bbox_inches='tight')
-            print(f"Saved comprehensive prediction plot to {save_path}")
+            base_name = f'comprehensive_predictions_{self.feature_names[feature_idx]}'
+            png_path = os.path.join(self.save_dir, base_name + '.png')
+            pdf_path = os.path.join(self.save_dir, base_name + '.pdf')
+            csv_path = os.path.join(self.save_dir, base_name + '.csv')
+
+            # Save PNG
+            plt.savefig(png_path, dpi=150, bbox_inches='tight')
+            # Save PDF
+            plt.savefig(pdf_path, dpi=300, bbox_inches='tight', format='pdf')
+            print(f"Saved comprehensive prediction plot to {png_path} and {pdf_path}")
+
+            # Save CSV with plotted data
+            if len(plot_data_records) > 0:
+                try:
+                    df_plot = pd.DataFrame(plot_data_records)
+                    df_plot.to_csv(csv_path, index=False)
+                    print(f"Saved plotted data to {csv_path}")
+                except Exception as csv_err:
+                    print(f"Error saving CSV data: {csv_err}")
         except Exception as e:
-            print(f"Error saving plot: {e}")
-            
+            print(f"Error saving plot or data: {e}")
+        
         if return_fig:
             return fig
         plt.close(fig)
@@ -633,21 +689,13 @@ class StockVisualizer:
                         print(f"[DEBUG] Unknown timestamp format: {type(start_timestamp)}")
                         raise ValueError(f"Unknown timestamp format: {type(start_timestamp)}")
                     
-                    # Ensure we have a valid date from 2025
-                    if start_time.year < 2025:
-                        print(f"[DEBUG] Timestamp year {start_time.year} < 2025, updating to 2025")
-                        start_time = start_time.replace(year=2025)
-                    
-                    # Add some random minutes to vary the exact start time within trading hours
-                    # But keep it reasonable for market hours
-                    random_offset_minutes = np.random.randint(0, 60)  # 0-1 hour offset
-                    start_time += pd.Timedelta(minutes=random_offset_minutes)
+                    # Keep original timestamp intact to reflect real dataset time
                     
                     # Ensure we don't go too late in the day (need 75 minutes for full sequence)
                     if start_time.hour >= 22:  # After 10 PM
                         start_time = start_time.replace(hour=14, minute=30)  # Set to 2:30 PM
                     
-                    print(f"[DEBUG] Final timestamp for visualization: {start_time}")
+                    print(f"[DEBUG] Using dataset timestamp for visualization: {start_time}")
                     
                     return {
                         'start_time': start_time.strftime('%Y-%m-%d %H:%M'),
@@ -657,32 +705,14 @@ class StockVisualizer:
                         'timestamp_source': 'dataset'
                     }
             
-            # Fallback: generate realistic trading times using actual dataset date
-            print(f"[DEBUG] Falling back to generated timestamp with dataset date")
-            
-            # Get actual date from dataset context
-            base_date = self._get_dataset_date_info(getattr(self, '_current_dataset', None))
-            
-            # Generate random realistic trading time
-            # Market hours: 9:30 AM to 4:00 PM EST, plus extended hours
-            min_hour = 9   # 9 AM start (pre-market)
-            max_hour = 16  # 4 PM end (regular market hours)
-            
-            # Random time between market hours
-            start_hour = np.random.randint(min_hour, max_hour + 1)
-            start_minute = np.random.randint(0, 60)
-            
-            # Create realistic timestamp with actual date
-            start_time = pd.Timestamp(base_date).replace(hour=start_hour, minute=start_minute)
-            
-            print(f"[DEBUG] Generated timestamp: {start_time}")
-            
+            # Fallback: simply return blank timestamp info if dataset does not provide
+            print(f"[DEBUG] Falling back to no timestamp information")
             return {
-                'start_time': start_time.strftime('%Y-%m-%d %H:%M'),
+                'start_time': '',
                 'minutes': None,
                 'hours': None,
-                'base_date': base_date,
-                'timestamp_source': 'generated'
+                'base_date': None,
+                'timestamp_source': 'unknown'
             }
         except Exception as e:
             print(f"Warning: Could not reconstruct timestamps: {e}")

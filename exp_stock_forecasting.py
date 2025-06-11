@@ -658,8 +658,16 @@ class Exp_Stock_Forecast():
                  if test and i % 20 == 0:
                      from utils.tools import visual
                      
-                     # Use CLOSE PRICE (index 1) instead of transactions (index -1) for meaningful visualization
-                     close_feature_idx = 1 if len(self.args.features) > 1 else 0
+                     # FIXED: Dynamically determine close price feature index
+                     # Prefer dataset feature ordering (handles default feature list)
+                     if hasattr(data, 'features') and 'close' in data.features:
+                         close_feature_idx = data.features.index('close')
+                     else:
+                         # Fall back to args.features or first feature
+                         if getattr(self.args, 'features', None) and 'close' in self.args.features:
+                             close_feature_idx = self.args.features.index('close')
+                         else:
+                             close_feature_idx = 0  # default
                      
                      # Use DENORMALIZED data for visualization
                      input_sample = input_seq_denorm[0, :, close_feature_idx]
@@ -733,14 +741,25 @@ class Exp_Stock_Forecast():
                         if not os.path.exists(vis_dir):
                             os.makedirs(vis_dir)
                         
-                        # Use DENORMALIZED data and close price (feature_idx=1)
+                        # FIXED: Dynamically determine close price feature index
+                        # Prefer dataset feature ordering (handles default feature list)
+                        if hasattr(data, 'features') and 'close' in data.features:
+                            close_feature_idx = data.features.index('close')
+                        else:
+                            # Fall back to args.features or first feature
+                            if getattr(self.args, 'features', None) and 'close' in self.args.features:
+                                close_feature_idx = self.args.features.index('close')
+                            else:
+                                close_feature_idx = 0  # default
+                        
+                        # Use DENORMALIZED data and close price
                         fig = self.visualizer.plot_comprehensive_predictions(
                             historical_data=inputs_denorm, 
                             historical_marks=input_marks,
                             true_values=trues_denorm, 
                             predictions=preds_denorm, 
                             dataset=data, 
-                            feature_idx=1,  # Close price
+                            feature_idx=close_feature_idx,
                             n_samples_to_plot=3,
                             return_fig=True
                         )

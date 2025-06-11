@@ -31,7 +31,7 @@ class StockPredictionConfig:
     data_dir: str = "dataset"  # Use local dataset directory
     stocks: Optional[List[str]] = None  # If None, will use all stocks in CSV
     features: List[str] = field(
-        default_factory=lambda: ['volume', 'close', 'transactions']
+        default_factory=lambda: ['close', 'volume', 'transactions']
     )
     train_size: Optional[int] = 1  # Number of files to use for training (None means use all remaining files)
     test_size: int = 2   # Number of files to use for testing
@@ -133,6 +133,9 @@ class StockPredictionConfig:
     max_test_samples: Optional[int] = None   # Limit test samples for testing (None = unlimited)
     
     def __post_init__(self):
+        # Update model parameters based on number of features
+        self._update_model_dimensions()
+        
         # Initialize file paths - this can be called again after CLI overrides
         self._initialize_file_paths()
         
@@ -157,6 +160,14 @@ class StockPredictionConfig:
             print("GPU usage is disabled, will use CPU")
         print(f"Config stocks type: {type(self.stocks)}")
         print(f"Config stocks value: {self.stocks}")
+    
+    def _update_model_dimensions(self):
+        """Update model dimensions based on number of features"""
+        num_features = len(self.features)
+        self.enc_in = num_features
+        self.dec_in = num_features  
+        self.c_out = num_features
+        print(f"Updated model dimensions for {num_features} features: enc_in={self.enc_in}, dec_in={self.dec_in}, c_out={self.c_out}")
     
     def _initialize_file_paths(self):
         """Initialize file paths based on current data_dir. Can be called after CLI overrides."""
@@ -191,6 +202,11 @@ class StockPredictionConfig:
         self.train_files = csv_files[-(self.test_size + self.val_size + train_size):-(self.test_size + self.val_size)]  # Limited training files
         
         print(f"Data split - Train: {len(self.train_files)} files, Validation: {len(self.val_files)} files, Test: {len(self.test_files)} files")
+    
+    def update_features(self, new_features: List[str]):
+        """Update features and corresponding model dimensions. Call this after CLI overrides."""
+        self.features = new_features
+        self._update_model_dimensions()
     
     @property
     def train_data_path(self) -> str:
