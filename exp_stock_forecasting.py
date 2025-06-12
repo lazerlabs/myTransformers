@@ -12,62 +12,37 @@ Usage:
     # See CLI help for all options.
 
 """
+import os
+import sys
+import time
+import warnings
+
+import numpy as np
 import torch
 import torch.nn as nn
 from torch import optim
-import os
-import time
-import warnings
-import numpy as np
 from tqdm import tqdm
-from stock_dataset import create_dataloader
-from utils.logger import Logger
+
+from exp_basic import Exp_Basic
+from stock_dataset import StockDataset, create_dataloader
+from utils.metrics import metric
 from utils.visualization import StockVisualizer
-from data_provider.data_loader import create_data_loaders
+from utils.loss import get_loss_function
+from utils.logger import Logger
 from configs import StockPredictionConfig
-from utils.loss import get_loss_function # Added import
+
 warnings.filterwarnings('ignore')
 
-class Exp_Stock_Forecast():
-    def __init__(self, args: StockPredictionConfig):
-        self.args = args
-        self.device = self._acquire_device()
-        self.model = self._build_model().to(self.device)
-
-        # Initialize logger and visualizer
-        log_dir = args.logs_dir
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-        self.logger = Logger(f"{args.model}_stock_prediction", log_dir=log_dir)
-        self.visualizer = StockVisualizer(save_dir=args.figures_dir)
-
-        # Create data loaders, store datasets, and store global stats
-        (
-            self.train_dataset, self.train_loader,
-            self.test_dataset, self.test_loader,
-            self.global_mean, self.global_std # Store stats
-        ) = create_data_loaders(args)
-        # TODO: Add handling for validation dataset/loader if implemented in create_data_loaders
-
-        # Initialize criterion here so it's available for all methods
-        self.criterion = self._select_criterion()
-
-
-    def _acquire_device(self):
-        if self.args.use_gpu:
-            if torch.cuda.is_available():
-                device = torch.device('cuda:0')
-                print('Use GPU:', device)
-            elif torch.backends.mps.is_available():
-                device = torch.device('mps')
-                print('Use MPS:', device)
-            else:
-                device = torch.device('cpu')
-                print('No GPU/MPS available, use CPU instead')
-        else:
-            device = torch.device('cpu')
-            print('Use CPU')
-        return device
+class Exp_Stock_Forecasting(Exp_Basic):
+    def __init__(self, args):
+        super(Exp_Stock_Forecasting, self).__init__(args)
+        
+        # Initialize logger
+        self.logger = Logger(name=args.model, log_dir='./logs')
+        
+        # Global stats for normalization
+        self.global_mean = None
+        self.global_std = None
 
     def _build_model(self):
         """
@@ -151,24 +126,21 @@ class Exp_Stock_Forecast():
         return model
 
 
-    def _get_data(self, flag):
+    def _get_data(self, flag, shuffle=True, max_samples=None):
         """
         flag: 'train', 'val', or 'test'
+        shuffle: bool, whether to shuffle the data
+        max_samples: int, optional limit on the number of samples
         """
         if flag == 'train':
             data_path_list = self.args.train_files
             tickers = self.args.stocks # Use configured stocks for training (could be None)
-            shuffle_data = True
         elif flag == 'val': # Assuming 'val' flag for validation
              data_path_list = self.args.val_files # Use val_files from config
              tickers = self.args.val_stocks # Use specific validation stocks
-             shuffle_data = False
-             # data_path = self.args.val_data_path # Assuming val_data_path exists in config - Use val_files instead
         else: # flag == 'test'
              data_path_list = self.args.test_files # Use test_files from config
              tickers = self.args.stocks # Use configured stocks for testing (or None)
-             shuffle_data = False
-             # data_path is already set correctly for test
 
         # Determine if scaling should be used (only if enabled AND stats are valid)
         scale_data = self.args.scale and self.global_mean is not None and self.global_std is not None
@@ -178,7 +150,19 @@ class Exp_Stock_Forecast():
              print(f"Warning: No data files found for flag '{flag}'. Returning None for dataset and dataloader.")
              return None, None
 
-        data_set, data_loader = create_dataloader(
+        data_set = StockDataset(
+            file_paths=data_path_list,
+            tickers=tickers,
+            seq_len=self.args.seq_len,
+            pred_len=self.args.pred_len,
+            scale=self.args.scale,
+            features=self.args.features,
+            global_mean=self.global_mean,
+            global_std=self.global_std,
+            mode=self.args.mode,
+            interpolate_max_missing=self.args.interpolate_max_missing
+        )
+        _, data_loader = create_dataloader(
             file_paths=data_path_list, # Pass the list of paths
             batch_size=self.args.batch_size,
             seq_len=self.args.seq_len,
@@ -188,9 +172,10 @@ class Exp_Stock_Forecast():
             features=self.args.features, # Pass features
             global_mean=self.global_mean, # Pass stored global stats
             global_std=self.global_std,   # Pass stored global stats
-            shuffle=shuffle_data, # Pass shuffle flag
+            shuffle=shuffle, # Pass shuffle flag
             mode=self.args.mode,
-            interpolate_max_missing=self.args.interpolate_max_missing
+            interpolate_max_missing=self.args.interpolate_max_missing,
+            max_samples=max_samples
         )
         return data_set, data_loader
 
@@ -257,6 +242,9 @@ class Exp_Stock_Forecast():
 
         train_steps = len(train_loader)
         early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)
+        
+        # Initialize criterion
+        self.criterion = self._select_criterion()
 
         # Initialize learning rate scheduler
         if self.args.lr_scheduler == 'cosine':
@@ -288,6 +276,17 @@ class Exp_Stock_Forecast():
         }
 
         print(f"\nStarting Training for {self.args.train_epochs} epochs...")
+        
+        # Log training start
+        self.logger.logger.info(f"=== Training Started ===")
+        self.logger.logger.info(f"Model: {self.args.model}")
+        self.logger.logger.info(f"Features: {self.args.features}")
+        self.logger.logger.info(f"Epochs: {self.args.train_epochs}")
+        self.logger.logger.info(f"Batch Size: {self.args.batch_size}")
+        self.logger.logger.info(f"Learning Rate: {self.args.learning_rate}")
+        self.logger.logger.info(f"Loss Function: {self.args.loss_type}")
+        self.logger.logger.info(f"Device: {self.device}")
+        self.logger.logger.info(f"Training samples: {len(train_data) if train_data else 'N/A'}")
 
         global_iter = global_iter if 'global_iter' in locals() else 0
         
@@ -440,6 +439,9 @@ class Exp_Stock_Forecast():
             else:
                 scheduler.step(val_loss)
 
+            # Log epoch completion
+            self.logger.log_training(epoch + 1, avg_epoch_train_loss, val_loss, test_mse, current_lr)
+
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.6f} Val Loss: {3:.6f} Learning Rate: {4:.6f}".format(
                 epoch + 1, train_steps if self.args.max_train_iterations is None else i + 1, avg_epoch_train_loss, val_loss, current_lr))
 
@@ -447,6 +449,7 @@ class Exp_Stock_Forecast():
             early_stopping(val_loss, self.model, path)
             if early_stopping.early_stop:
                 print("Early stopping triggered.")
+                self.logger.logger.info(f"Early stopping triggered at epoch {epoch + 1}")
                 break
 
             # Save checkpoint based on epoch configuration
@@ -460,7 +463,8 @@ class Exp_Stock_Forecast():
                     'optimizer_state_dict': model_optim.state_dict(),
                     'best_val_loss': best_val_loss
                 }, epoch_checkpoint_path)
-                print(f"Epoch checkpoint saved at epoch {epoch + 1}: {epoch_checkpoint_path}")
+                print(f"Epoch checkpoint saved: {epoch_checkpoint_path}")
+                self.logger.logger.info(f"Epoch checkpoint saved: {epoch_checkpoint_path}")
 
             print(f"Epoch {epoch + 1} completed in {time.time() - epoch_time:.2f} seconds.")
 
@@ -493,8 +497,17 @@ class Exp_Stock_Forecast():
         if os.path.exists(best_model_path):
              print(f"Loading best model from: {best_model_path}")
              self.model.load_state_dict(torch.load(best_model_path, map_location=self.device))
+             self.logger.logger.info(f"Loaded best model from: {best_model_path}")
         else:
              print("Warning: Best model checkpoint not found. Returning current model state.")
+             self.logger.logger.info("Warning: Best model checkpoint not found. Using current model state.")
+
+        # Log training completion
+        self.logger.logger.info(f"=== Training Completed ===")
+        self.logger.logger.info(f"Total epochs: {len(train_losses)}")
+        self.logger.logger.info(f"Final train loss: {train_losses[-1]:.6f}")
+        self.logger.logger.info(f"Final val loss: {val_losses[-1]:.6f}")
+        self.logger.logger.info(f"Final learning rate: {learning_rates[-1]:.6e}")
 
         return self.model
 
@@ -548,7 +561,7 @@ class Exp_Stock_Forecast():
 
         # Use appropriate data loader
         data_flag = 'test' if test else 'val'
-        data, data_loader = self._get_data(flag=data_flag)
+        data, data_loader = self._get_data(flag=data_flag, shuffle=False, max_samples=None)
 
         # Check if dataloader is valid
         if data_loader is None or len(data_loader) == 0:
@@ -556,171 +569,101 @@ class Exp_Stock_Forecast():
              # Return high loss for validation, or handle differently for test?
              return np.inf if not test else (np.nan, np.nan, np.nan) # Return NaNs for test metrics
 
-        preds = []
-        trues = []
-        inputs = []  # Store input sequences for visualization
-        input_marks = []  # Store input timestamps
-        total_loss = [] # For calculating average validation loss
-
-        self.model.eval()
-        test_batches_processed = 0
-        max_test_batches = 10 # Limit to 10 batches for quick test=1 evaluation
-
-        # Use config-driven results directory for visualization
-        results_dir = getattr(self.args, "results_dir", None)
-        if results_dir is None:
-            results_dir = os.path.join("results", setting)
-        else:
-            results_dir = os.path.join(results_dir, setting)
+        preds, trues, input_data, input_marks = [], [], [], []
         
-        # Create test_results folder for visualization (similar to original)
-        folder_path = os.path.join('./test_results/', setting)
-        if test and not os.path.exists(folder_path):
-            os.makedirs(folder_path)
-
+        self.model.eval()
+        
         with torch.no_grad():
-            pbar_test = tqdm(enumerate(data_loader), total=len(data_loader), desc=f"Evaluating ({data_flag})")
-            for i, batch_data in pbar_test:
-                 # Limit batches processed during final testing (test=1) for speed in test_run.py
-                 if test == 1 and test_batches_processed >= max_test_batches:
-                      print(f"\nLimiting test evaluation to {max_test_batches} batches for speed.")
-                      break
+            for i, (batch_x, batch_x_mark, batch_y, batch_y_mark, _) in tqdm(enumerate(data_loader), desc="Testing"):
+                batch_x = batch_x.float().to(self.device)
+                batch_y = batch_y.float().to(self.device)
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_y_mark = batch_y_mark.float().to(self.device)
 
-                 # Check if batch_data is None
-                 if batch_data is None:
-                      warnings.warn(f"Skipping iteration {i} in evaluation due to None batch data.")
-                      continue
-                 # Unpack batch data
-                 try:
-                      batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask = batch_data
-                 except ValueError as e:
-                      warnings.warn(f"Skipping iteration {i} in evaluation due to error unpacking batch data: {e}")
-                      continue # Skip this batch
+                outputs = self.model(batch_x, batch_x_mark, None, None) # Decoder inputs are not used in this model
+                
+                # Reshape if necessary (ensure preds and trues have same shape)
+                f_dim = -1
+                outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                
+                preds.append(outputs.detach().cpu().numpy())
+                trues.append(batch_y.detach().cpu().numpy())
+                input_data.append(batch_x.detach().cpu().numpy())
+                input_marks.append(batch_x_mark.detach().cpu().numpy())
 
-                 batch_x = batch_x.float().to(self.device)
-                 batch_y = batch_y.float().to(self.device)
-                 batch_x_mark = batch_x_mark.float().to(self.device)
-                 batch_y_mark = batch_y_mark.float().to(self.device)
-                 attention_mask = attention_mask.float().to(self.device)
+        if not preds:
+            print("No predictions were generated during testing. Cannot evaluate.")
+            return None
+            
+        preds = np.concatenate(preds, axis=0)
+        trues = np.concatenate(trues, axis=0)
+        input_data = np.concatenate(input_data, axis=0)
+        input_marks = np.concatenate(input_marks, axis=0)
+        
+        print(f"\n--- Test Results ---")
+        print(f"Predictions shape: {preds.shape}")
+        print(f"Ground truth shape: {trues.shape}")
+        print(f"Input data shape: {input_data.shape}")
+        print(f"Input marks shape: {input_marks.shape}")
 
-                 # **CRITICAL FIX**: Construct decoder input as in original iTransformer
-                 # Don't permute here - let the model handle permutation internally
-                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+        # Denormalize for plotting and metrics
+        try:
+            trues = data.denormalize(trues)
+            preds = data.denormalize(preds)
+            # Also denormalize historical data for plotting
+            input_data = data.denormalize(input_data)
+        except Exception as e:
+            print(f"[ERROR] Denormalization failed: {e}")
+            print("[WARN] Proceeding with normalized data for metrics and plots.")
 
-                 # **CRITICAL FIX**: Use original iTransformer model call signature WITH attention mask
-                 if self.args.output_attention:
-                     outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, mask=attention_mask)[0]
-                 else:
-                     outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, mask=attention_mask)
+        # Calculate and print metrics
+        from utils.metrics import metric
+        mae, mse, rmse, mape, mspe = metric(preds, trues)
+        print(f'MSE: {mse:.4f}, MAE: {mae:.4f}, RMSE: {rmse:.4f}, MAPE: {mape:.4f}, MSPE: {mspe:.4f}')
+        
+        # Log test metrics
+        if test:
+            self.logger.log_prediction(mae, mse, rmse, mape, mspe)
+            self.logger.logger.info(f"=== Final Test Results ===")
+            self.logger.logger.info(f"Test samples: {len(preds)}")
+            self.logger.logger.info(f"Predictions shape: {preds.shape}")
+            self.logger.logger.info(f"Ground truth shape: {trues.shape}")
+        else:
+            self.logger.logger.info(f"Validation - MSE: {mse:.6f}, MAE: {mae:.6f}")
 
-                 # Extract final predictions and handle feature dimensions
-                 f_dim = -1 if self.args.forecasting_features == 'MS' else 0
-                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+        # Create visualizer instance
+        visualizer = StockVisualizer(save_dir=f'./figures/{setting}/')
+        
+        # Find index of target feature for plotting
+        try:
+            target_feature_idx = self.args.features.index(self.args.target)
+        except (ValueError, AttributeError):
+            print(f"Warning: Target '{self.args.target}' not in features list. Defaulting to first feature for plots.")
+            target_feature_idx = 0
 
-                 # **DENORMALIZATION FIX**: Create separate copies for metrics vs visualization
-                 # Store ORIGINAL normalized data for metrics calculation (this is correct)
-                 pred_normalized = outputs.detach().cpu().numpy()
-                 true_normalized = batch_y.detach().cpu().numpy()
-                 input_seq_normalized = batch_x.detach().cpu().numpy()
-                 input_time = batch_x_mark.detach().cpu().numpy()
-
-                 # Calculate loss using the instance criterion (on normalized data - correct!)
-                 loss = self.criterion(outputs, batch_y)
-                 total_loss.append(loss.item())
-
-                 # Create DENORMALIZED copies for visualization only
-                 if test and data.scale and self.args.inverse:
-                     # Denormalize for visualization (create separate copies)
-                     pred_denorm = pred_normalized.copy()
-                     true_denorm = true_normalized.copy()
-                     input_seq_denorm = input_seq_normalized.copy()
-                     
-                     for batch_idx in range(pred_denorm.shape[0]):
-                         pred_denorm[batch_idx] = data.denormalize(pred_denorm[batch_idx])
-                         true_denorm[batch_idx] = data.denormalize(true_denorm[batch_idx])
-                         input_seq_denorm[batch_idx] = data.denormalize(input_seq_denorm[batch_idx])
-                 else:
-                     # If no denormalization, use normalized data for visualization too
-                     pred_denorm = pred_normalized
-                     true_denorm = true_normalized 
-                     input_seq_denorm = input_seq_normalized
-
-                 # Store NORMALIZED data for final metrics calculation (correct approach)
-                 preds.append(pred_normalized)
-                 trues.append(true_normalized)
-                 inputs.append(input_seq_normalized)
-                 input_marks.append(input_time)
-                 test_batches_processed += 1
-
-                 # **FIXED VISUALIZATION**: Use denormalized data and CLOSE PRICE (feature index 1)
-                 if test and i % 20 == 0:
-                     from utils.tools import visual
-                     
-                     # FIXED: Dynamically determine close price feature index
-                     # Prefer dataset feature ordering (handles default feature list)
-                     if hasattr(data, 'features') and 'close' in data.features:
-                         close_feature_idx = data.features.index('close')
-                     else:
-                         # Fall back to args.features or first feature
-                         if getattr(self.args, 'features', None) and 'close' in self.args.features:
-                             close_feature_idx = self.args.features.index('close')
-                         else:
-                             close_feature_idx = 0  # default
-                     
-                     # Use DENORMALIZED data for visualization
-                     input_sample = input_seq_denorm[0, :, close_feature_idx]
-                     true_sample = true_denorm[0, :, close_feature_idx]  
-                     pred_sample = pred_denorm[0, :, close_feature_idx]
-                     
-                     # Concatenate historical + future (like original)
-                     gt = np.concatenate((input_sample, true_sample), axis=0)
-                     pd = np.concatenate((input_sample, pred_sample), axis=0)
-                     
-                     # Save visualization
-                     visual_path = os.path.join(folder_path, f'{i}.pdf')
-                     visual(gt, pd, visual_path)
-
-        # Calculate average loss for validation
-        avg_loss = np.average(total_loss) if total_loss else np.inf
+        # Before calling the plot, ensure the test_data is the full dataset
+        visualizer.plot_comprehensive_predictions(
+            historical_data=input_data,
+            historical_marks=input_marks,
+            true_values=trues,
+            predictions=preds,
+            dataset=data,  # Pass the full test dataset
+            feature_idx=target_feature_idx,
+            n_samples_to_plot=3
+        )
 
         # Only perform saving/plotting/metric calculation for final test run
         if test:
-            # Concatenate NORMALIZED data for metrics (this is correct!)
-            preds = np.concatenate(preds, axis=0)
-            trues = np.concatenate(trues, axis=0)
-            inputs = np.concatenate(inputs, axis=0)
-            input_marks = np.concatenate(input_marks, axis=0)
-
-            print('test shape:', preds.shape, trues.shape)
-            preds = preds.reshape(-1, preds.shape[-2], preds.shape[-1])
-            trues = trues.reshape(-1, trues.shape[-2], trues.shape[-1])
-            print('test shape:', preds.shape, trues.shape)
-
-            # **CALCULATE METRICS ON NORMALIZED DATA** (this is the correct approach!)
-            from utils.metrics import metric
-            mae, mse, rmse, mape, mspe = metric(preds, trues)
-
-            # Create denormalized copies for visualization and saving
-            if data.scale and self.args.inverse:
-                preds_denorm = preds.copy()
-                trues_denorm = trues.copy()
-                inputs_denorm = inputs.copy()
-                
-                # Denormalize all samples
-                for sample_idx in range(preds_denorm.shape[0]):
-                    preds_denorm[sample_idx] = data.denormalize(preds_denorm[sample_idx])
-                    trues_denorm[sample_idx] = data.denormalize(trues_denorm[sample_idx])
-                    inputs_denorm[sample_idx] = data.denormalize(inputs_denorm[sample_idx])
-            else:
-                preds_denorm = preds
-                trues_denorm = trues
-                inputs_denorm = inputs
-
             # Use config-driven results directory
-            if not os.path.exists(results_dir):
-                os.makedirs(results_dir)
+            results_dir = getattr(self.args, "results_dir", None)
+            if results_dir is None:
+                results_dir = os.path.join("results", setting)
+            else:
+                results_dir = os.path.join(results_dir, setting)
+
+            # Ensure results directory exists
+            os.makedirs(results_dir, exist_ok=True)
 
             # **PRINT RESULTS**: Same format as original
             print('mse:{}, mae:{}'.format(mse, mae))
@@ -729,14 +672,14 @@ class Exp_Stock_Forecast():
             np.save(os.path.join(results_dir, 'metrics.npy'), np.array([mae, mse, rmse, mape, mspe]))
             np.save(os.path.join(results_dir, 'pred_normalized.npy'), preds)
             np.save(os.path.join(results_dir, 'true_normalized.npy'), trues)
-            np.save(os.path.join(results_dir, 'pred_denormalized.npy'), preds_denorm)
-            np.save(os.path.join(results_dir, 'true_denormalized.npy'), trues_denorm)
-            np.save(os.path.join(results_dir, 'inputs_denormalized.npy'), inputs_denorm)
+            np.save(os.path.join(results_dir, 'pred_denormalized.npy'), preds)
+            np.save(os.path.join(results_dir, 'true_denormalized.npy'), trues)
+            np.save(os.path.join(results_dir, 'inputs_denormalized.npy'), input_data)
 
             # **FIXED COMPREHENSIVE VISUALIZATION**: Use denormalized data and close price
             if hasattr(self, 'visualizer'):
                 try:
-                    if len(inputs_denorm) > 0 and len(preds_denorm) > 0:
+                    if len(input_data) > 0 and len(preds) > 0:
                         vis_dir = os.path.join(results_dir, 'visualizations')
                         if not os.path.exists(vis_dir):
                             os.makedirs(vis_dir)
@@ -754,10 +697,10 @@ class Exp_Stock_Forecast():
                         
                         # Use DENORMALIZED data and close price
                         fig = self.visualizer.plot_comprehensive_predictions(
-                            historical_data=inputs_denorm, 
+                            historical_data=input_data, 
                             historical_marks=input_marks,
-                            true_values=trues_denorm, 
-                            predictions=preds_denorm, 
+                            true_values=trues, 
+                            predictions=preds, 
                             dataset=data, 
                             feature_idx=close_feature_idx,
                             n_samples_to_plot=3,
@@ -771,7 +714,7 @@ class Exp_Stock_Forecast():
             return mse
 
         else: # If validation (test=0)
-            return avg_loss # Return average validation loss for early stopping/LR scheduling
+            return mse # Return average validation loss for early stopping/LR scheduling
 
 class EarlyStopping:
     def __init__(self, patience=7, verbose=False, delta=0):

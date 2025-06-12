@@ -361,12 +361,6 @@ class StockVisualizer:
         # New: container to collect data for optional CSV export
         plot_data_records = []  # Each record is a dict for DataFrame rows
 
-        # Try to extract available ticker names from test files for labeling
-        available_tickers = self._get_available_tickers(dataset)
-        
-        # Store dataset reference for date extraction
-        self._current_dataset = dataset
-
         # Create subplot grid
         fig, axes = plt.subplots(num_plots, 1, figsize=(20, 6 * num_plots), squeeze=False)
 
@@ -401,9 +395,10 @@ class StockVisualizer:
 
             # Denormalise
             try:
-                hist_denorm_full = dataset.denormalize(hist_full_features)
-                true_denorm_full = dataset.denormalize(true_full_features)
-                pred_denorm_full = dataset.denormalize(pred_full_features)
+                # Data is already denormalized from the test() function
+                hist_denorm_full = hist_full_features
+                true_denorm_full = true_full_features
+                pred_denorm_full = pred_full_features
                 
                 hist_denorm = hist_denorm_full[:, feature_idx]
                 true_denorm = true_denorm_full[:, feature_idx]
@@ -414,8 +409,37 @@ class StockVisualizer:
                 true_denorm = true_full_features[:, feature_idx]
                 pred_denorm = pred_full_features[:, feature_idx]
 
-            # Reconstruct actual timestamps from time features (pass trimmed marks)
-            actual_timestamps = self._reconstruct_timestamps(hist_time_marks[:real_seq_len], seq_len, pred_len)
+            # Get Ticker and Timestamp info with improved error handling
+            try:
+                # Fix the get_sequence_info method to handle both modes
+                if hasattr(dataset, 'mode') and dataset.mode == 'full_day':
+                    # For full_day mode: (sequence_data, start_timestamp, ticker, input_length)
+                    if len(dataset.all_sequences[seq_idx]) >= 4:
+                        _, start_timestamp, ticker_name, _ = dataset.all_sequences[seq_idx]
+                    else:
+                        # Fallback for unexpected structure
+                        _, start_timestamp, ticker_name = dataset.all_sequences[seq_idx][:3]
+                else:
+                    # For sliding_window mode: (sequence_data, start_timestamp, ticker)
+                    _, start_timestamp, ticker_name = dataset.all_sequences[seq_idx]
+                
+                # Ensure timestamp is a usable pandas object for formatting
+                if not isinstance(start_timestamp, pd.Timestamp):
+                    start_timestamp = pd.to_datetime(start_timestamp)
+                start_time_str = start_timestamp.strftime('%Y-%m-%d %H:%M')
+                
+                # Create a more informative reference
+                end_timestamp = start_timestamp + pd.Timedelta(minutes=seq_len-1)
+                end_time_str = end_timestamp.strftime('%H:%M')
+                time_reference = f"{start_time_str} to {end_time_str}"
+                
+                timestamp_available = True
+            except Exception as e:
+                print(f"Warning: Could not retrieve valid sequence info for index {seq_idx}. Error: {e}")
+                # Fallback if get_sequence_info fails or returns invalid data
+                ticker_name = f"Unknown_Ticker"
+                time_reference = f"Sequence #{seq_idx}"
+                timestamp_available = False
             
             # Create continuous x-axis (historical + future)
             x_hist = np.arange(seq_len)
@@ -458,33 +482,31 @@ class StockVisualizer:
             mae = np.mean(np.abs(pred_denorm - true_denorm))
             mape = np.mean(np.abs((pred_denorm - true_denorm) / (true_denorm + 1e-8))) * 100
             
-            # Determine ticker name
-            try:
-                ticker_name = dataset.get_ticker_for_sequence(seq_idx)
-            except Exception as e:
-                print(f"Warning: Could not get ticker for sequence {seq_idx}: {e}")
-                ticker_name = self._get_ticker_for_sample(seq_idx, available_tickers, num_total_sequences)
-            
-            # Title
-            title_text = (f'Stock: {ticker_name} | Sample {seq_idx} | {self.feature_names[feature_idx].title()} Price\n'
+            # Improved title with better ticker display and reference info
+            title_text = (f'Stock: {ticker_name} | {self.feature_names[feature_idx].title()} Price\n'
                            f'MSE: {mse:.4f} | MAE: {mae:.4f} | MAPE: {mape:.2f}%')
-            if actual_timestamps['start_time']:
-                title_text += f' | Start: {actual_timestamps["start_time"]}'
+            if timestamp_available:
+                title_text += f'\nData Reference: {time_reference} | Dataset Index: {seq_idx}'
+                title_text += f'\nReal Data Start: {start_timestamp.strftime("%Y-%m-%d %H:%M:%S")} (check original CSV at this timestamp)'
+            else:
+                title_text += f'\nDataset Index: {seq_idx} (for data verification)'
             ax.set_title(title_text, fontsize=13, fontweight='bold')
             
             ax.set_xlabel('Time Steps (Minutes)', fontsize=12)
             ax.set_ylabel(f'{self.feature_names[feature_idx].title()} Price', fontsize=12)
-            ax.legend(fontsize=11, loc='upper left')
+            
+            # Position legend to avoid overlap with performance indicator
+            ax.legend(fontsize=11, loc='upper right')
             ax.grid(True, alpha=0.3)
             
             # Improved x-axis labeling with time information
-            self._set_time_axis_labels(ax, seq_len, pred_len, actual_timestamps)
+            self._set_time_axis_labels(ax, seq_len, pred_len)
             
             # Add some styling
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
             
-            # Add performance indicator colors
+            # Add performance indicator colors - positioned to avoid legend overlap
             if mape < 5:
                 performance_color = '#2ca02c'  # Green for good
                 performance_text = 'Good'
@@ -495,19 +517,24 @@ class StockVisualizer:
                 performance_color = '#d62728'  # Red for poor
                 performance_text = 'Poor'
                 
-            ax.text(0.02, 0.98, f'Performance: {performance_text}', 
+            # Position performance indicator on the left side to avoid legend overlap
+            ax.text(0.02, 0.02, f'Performance: {performance_text}', 
                    transform=ax.transAxes, fontsize=10, fontweight='bold',
-                   verticalalignment='top', color=performance_color,
+                   verticalalignment='bottom', color=performance_color,
                    bbox=dict(boxstyle="round,pad=0.3", facecolor=performance_color, alpha=0.2))
 
             # -------------------------------
             # NEW: collect data for CSV export
             # -------------------------------
+            # Get timestamp string for CSV
+            timestamp_str = start_timestamp.strftime("%Y-%m-%d %H:%M:%S") if timestamp_available else "N/A"
+            
             # Historical data
             for step_idx, val in enumerate(hist_denorm):
                 plot_data_records.append({
                     'sequence_idx': int(seq_idx),
                     'ticker': str(ticker_name),
+                    'start_timestamp': timestamp_str,
                     'data_type': 'historical',
                     'time_step': int(step_idx),
                     'value': float(val)
@@ -517,6 +544,7 @@ class StockVisualizer:
                 plot_data_records.append({
                     'sequence_idx': int(seq_idx),
                     'ticker': str(ticker_name),
+                    'start_timestamp': timestamp_str,
                     'data_type': 'true',
                     'time_step': int(seq_len + fut_idx),
                     'value': float(val)
@@ -526,6 +554,7 @@ class StockVisualizer:
                 plot_data_records.append({
                     'sequence_idx': int(seq_idx),
                     'ticker': str(ticker_name),
+                    'start_timestamp': timestamp_str,
                     'data_type': 'predicted',
                     'time_step': int(seq_len + fut_idx),
                     'value': float(val)
@@ -563,176 +592,7 @@ class StockVisualizer:
         plt.close(fig)
         return None
         
-    def _get_available_tickers(self, dataset):
-        """Extract available ticker names from the dataset files."""
-        try:
-            # Try to extract actual tickers from dataset files if possible
-            if hasattr(dataset, 'all_sequences') and len(dataset.all_sequences) > 0:
-                # We don't store ticker info in sequences, so use common tickers
-                # In future versions, we could modify dataset to store ticker info
-                pass
-            
-            # Use common stock tickers as fallback
-            common_tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'JPM', 'JNJ', 'UNH']
-            return common_tickers
-        except:
-            return ['STOCK_' + str(i) for i in range(10)]
-    
-    def _get_ticker_for_sample(self, seq_idx, available_tickers, total_sequences):
-        """Assign a ticker name to a sample sequence."""
-        # Simple heuristic: distribute samples across available tickers
-        ticker_idx = seq_idx % len(available_tickers)
-        return available_tickers[ticker_idx]
-    
-    def _get_dataset_date_info(self, dataset):
-        """Extract actual date information from the dataset."""
-        try:
-            # Try to get date from dataset files or sequences first
-            if hasattr(dataset, 'all_sequences') and len(dataset.all_sequences) > 0:
-                # Get actual timestamp from a random sequence
-                random_idx = np.random.randint(0, len(dataset.all_sequences))
-                _, first_timestamp, _ = dataset.all_sequences[random_idx]  # Unpack with ticker
-                if isinstance(first_timestamp, pd.Timestamp):
-                    actual_date = first_timestamp.date()
-                    print(f"[DEBUG] Extracted actual date from dataset: {actual_date}")
-                    return actual_date
-                elif isinstance(first_timestamp, str):
-                    try:
-                        parsed_timestamp = pd.to_datetime(first_timestamp)
-                        actual_date = parsed_timestamp.date()
-                        print(f"[DEBUG] Parsed timestamp from string: {actual_date}")
-                        return actual_date
-                    except:
-                        pass
-            
-            # Try to get from dataset's file paths if available
-            if hasattr(dataset, 'file_paths'):
-                file_paths = dataset.file_paths
-                print(f"[DEBUG] Using dataset file_paths: {file_paths[:3] if len(file_paths) > 3 else file_paths}")
-            else:
-                # Try to get from config if dataset doesn't have file_paths
-                from configs import StockPredictionConfig
-                config = StockPredictionConfig()
-                data_dir = config.data_dir
-                file_paths = glob.glob(os.path.join(data_dir, "*.csv"))
-                print(f"[DEBUG] Using config data_dir files: {[os.path.basename(f) for f in file_paths[:3]]}")
-            
-            # Extract dates from filenames
-            available_dates = []
-            for file_path in file_paths:
-                filename = os.path.basename(file_path)
-                if filename.startswith('20') and filename.endswith('.csv'):
-                    date_part = filename[:-4]  # Remove .csv
-                    try:
-                        date = pd.to_datetime(date_part).date()
-                        available_dates.append(date)
-                    except:
-                        continue
-            
-            if available_dates:
-                # Select the most recent date to reflect current data
-                selected_date = max(available_dates)
-                print(f"[DEBUG] Selected most recent date from filenames: {selected_date}")
-                return selected_date
-            
-            # If all else fails, use a reasonable fallback
-            fallback_date = pd.Timestamp('2025-01-15').date()
-            print(f"[DEBUG] Using fallback date: {fallback_date}")
-            return fallback_date
-            
-        except Exception as e:
-            print(f"Warning: Could not extract date info: {e}")
-            return pd.Timestamp('2025-01-15').date()  # Updated fallback to 2025
-    
-    def _reconstruct_timestamps(self, hist_time_marks, seq_len, pred_len):
-        """Reconstruct timestamp information from time features."""
-        try:
-            # Try to get actual timestamps from the dataset if available
-            if hasattr(self, '_current_dataset') and hasattr(self._current_dataset, 'all_sequences'):
-                sequences = self._current_dataset.all_sequences
-                if len(sequences) > 0:
-                    # Get a random sequence to extract timestamp info
-                    random_idx = np.random.randint(0, len(sequences))
-                    _, start_timestamp, _ = sequences[random_idx]  # Unpack with ticker
-                    
-                    print(f"[DEBUG] Raw timestamp from dataset: {start_timestamp} (type: {type(start_timestamp)})")
-                    
-                    # Handle different timestamp formats
-                    if isinstance(start_timestamp, pd.Timestamp):
-                        # This is already a pandas Timestamp, use it directly
-                        start_time = start_timestamp
-                        print(f"[DEBUG] Using pandas Timestamp directly: {start_time}")
-                    elif isinstance(start_timestamp, str):
-                        try:
-                            # Check if it's a nanosecond timestamp string
-                            if start_timestamp.isdigit() and len(start_timestamp) >= 18:
-                                # It's a nanosecond timestamp string
-                                timestamp_ns = int(start_timestamp)
-                                start_time = pd.to_datetime(timestamp_ns, unit='ns')
-                                print(f"[DEBUG] Parsed nanosecond timestamp string: {start_time}")
-                            else:
-                                # Try to parse as regular datetime string
-                                start_time = pd.to_datetime(start_timestamp)
-                                print(f"[DEBUG] Parsed string timestamp: {start_time}")
-                        except Exception as parse_error:
-                            print(f"[DEBUG] Failed to parse timestamp string: {parse_error}")
-                            raise ValueError("Could not parse timestamp string")
-                    elif isinstance(start_timestamp, (int, float)):
-                        # If it's a numeric timestamp, assume it's in nanoseconds or seconds
-                        if start_timestamp > 1e12:  # Looks like nanoseconds
-                            start_time = pd.to_datetime(start_timestamp, unit='ns')
-                        else:  # Assume seconds
-                            start_time = pd.to_datetime(start_timestamp, unit='s')
-                        print(f"[DEBUG] Converted numeric timestamp: {start_time}")
-                    else:
-                        # Unknown format, fall back to generated timestamp
-                        print(f"[DEBUG] Unknown timestamp format: {type(start_timestamp)}")
-                        raise ValueError(f"Unknown timestamp format: {type(start_timestamp)}")
-                    
-                    # Keep original timestamp intact to reflect real dataset time
-                    
-                    # Ensure we don't go too late in the day (need 75 minutes for full sequence)
-                    if start_time.hour >= 22:  # After 10 PM
-                        start_time = start_time.replace(hour=14, minute=30)  # Set to 2:30 PM
-                    
-                    print(f"[DEBUG] Using dataset timestamp for visualization: {start_time}")
-                    
-                    return {
-                        'start_time': start_time.strftime('%Y-%m-%d %H:%M'),
-                        'minutes': None,
-                        'hours': None,
-                        'base_date': start_time.date(),
-                        'timestamp_source': 'dataset'
-                    }
-            
-            # Fallback: simply return blank timestamp info if dataset does not provide
-            print(f"[DEBUG] Falling back to no timestamp information")
-            return {
-                'start_time': '',
-                'minutes': None,
-                'hours': None,
-                'base_date': None,
-                'timestamp_source': 'unknown'
-            }
-        except Exception as e:
-            print(f"Warning: Could not reconstruct timestamps: {e}")
-            # Fallback with 2025 date instead of 2024
-            base_date = pd.Timestamp('2025-01-15').date()  # Updated fallback
-            random_hour = np.random.randint(9, 17)  # 9 AM to 4 PM
-            random_minute = np.random.randint(0, 60)
-            start_time = pd.Timestamp(base_date).replace(hour=random_hour, minute=random_minute)
-            
-            print(f"[DEBUG] Final fallback timestamp: {start_time}")
-            
-            return {
-                'start_time': start_time.strftime('%Y-%m-%d %H:%M'),
-                'minutes': None,
-                'hours': None,
-                'base_date': base_date,
-                'timestamp_source': 'fallback'
-            }
-    
-    def _set_time_axis_labels(self, ax, seq_len, pred_len, timestamps):
+    def _set_time_axis_labels(self, ax, seq_len, pred_len):
         """Set informative time-based axis labels."""
         try:
             # Create tick positions

@@ -10,7 +10,7 @@ import threading
 import time
 import webbrowser
 from configs import StockPredictionConfig, get_config_defaults
-from exp_stock_forecasting import Exp_Stock_Forecast
+from exp_stock_forecasting import Exp_Stock_Forecasting
 from utils.loss import get_loss_function
 from torch.utils.tensorboard import SummaryWriter
 
@@ -267,7 +267,7 @@ def main(**kwargs):
 
     # Create experiment
     try:
-        exp = Exp_Stock_Forecast(config)
+        exp = Exp_Stock_Forecasting(config)
     except ValueError as e:
         # Handle specific model configuration errors gracefully
         error_msg = str(e)

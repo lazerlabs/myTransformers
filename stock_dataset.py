@@ -124,21 +124,41 @@ class StockDataset(Dataset):
                         warnings.warn(f"Error converting timestamps in {os.path.basename(file_path)}: {e}. Skipping file.")
                         break
                 
-                # Group by ticker
-                for ticker, group in chunk.groupby('ticker'):
-                    if tickers is not None and ticker not in tickers: # Filter tickers if provided
-                        continue
-                    if ticker not in file_data:
-                        file_data[ticker] = []
-                    # Ensure features exist and handle potential missing columns gracefully
+                # If ticker column exists, group by it. Otherwise, treat the whole file as one ticker.
+                if 'ticker' in chunk.columns:
+                    # Group by ticker
+                    for ticker, group in chunk.groupby('ticker'):
+                        if tickers is not None and ticker not in tickers: # Filter tickers if provided
+                            continue
+                        if ticker not in file_data:
+                            file_data[ticker] = []
+                        # Ensure features exist and handle potential missing columns gracefully
+                        if not all(feat in group.columns for feat in self.features):
+                            warnings.warn(f"Skipping ticker {ticker} in {os.path.basename(file_path)} due to missing feature columns ({[f for f in self.features if f not in group.columns]}).")
+                            continue
+                        # Ensure window_start exists
+                        if 'window_start' not in group.columns:
+                            warnings.warn(f"Skipping ticker {ticker} in {os.path.basename(file_path)} due to missing 'window_start' column.")
+                            continue
+                        file_data[ticker].append(group)
+                else:
+                    # Use filename as ticker if 'ticker' column is missing
+                    # Extract a clean name from the file path, e.g., "my_stock.csv" -> "my_stock"
+                    ticker_from_file = os.path.splitext(os.path.basename(file_path))[0]
+                    
+                    if ticker_from_file not in file_data:
+                        file_data[ticker_from_file] = []
+
+                    group = chunk
+                    # Ensure features exist in the chunk
                     if not all(feat in group.columns for feat in self.features):
-                        warnings.warn(f"Skipping ticker {ticker} in {os.path.basename(file_path)} due to missing feature columns ({[f for f in self.features if f not in group.columns]}).")
+                        warnings.warn(f"Skipping file {os.path.basename(file_path)} due to missing feature columns ({[f for f in self.features if f not in group.columns]}).")
                         continue
                     # Ensure window_start exists
                     if 'window_start' not in group.columns:
-                         warnings.warn(f"Skipping ticker {ticker} in {os.path.basename(file_path)} due to missing 'window_start' column.")
-                         continue
-                    file_data[ticker].append(group)
+                        warnings.warn(f"Skipping file {os.path.basename(file_path)} due to missing 'window_start' column.")
+                        continue
+                    file_data[ticker_from_file].append(group)
 
             # Process each ticker's data
             valid_tickers = 0
@@ -378,7 +398,15 @@ class StockDataset(Dataset):
         """Get ticker and timestamp for a specific sequence index."""
         if idx >= self.total_sequences:
             raise IndexError("Index out of range")
-        _, timestamp, ticker = self.all_sequences[idx]
+        
+        # Handle both modes: sliding_window (3-tuple) and full_day (4-tuple)
+        sequence_tuple = self.all_sequences[idx]
+        if len(sequence_tuple) >= 4:
+            # full_day mode: (sequence_data, start_timestamp, ticker, input_length)
+            _, timestamp, ticker, _ = sequence_tuple
+        else:
+            # sliding_window mode: (sequence_data, start_timestamp, ticker)
+            _, timestamp, ticker = sequence_tuple
         return ticker, timestamp
 
     def denormalize(self, data: Union[np.ndarray, torch.Tensor]) -> np.ndarray:

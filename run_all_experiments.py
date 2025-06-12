@@ -81,7 +81,7 @@ def run_experiment(model, features, experiment_num, total_experiments):
         "--e_layers", "4",
         "--d_ff", "2048",
         "--batch_size", str(BATCH_SIZE),
-        "--learning_rate", "0.0005",
+        "--learning_rate", "0.0001",
         "--train_epochs", str(EPOCHS),
         "--patience", "5",
         "--des", f"{feature_desc}_Feature",

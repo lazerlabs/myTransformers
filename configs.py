@@ -33,6 +33,7 @@ class StockPredictionConfig:
     features: List[str] = field(
         default_factory=lambda: ['close', 'volume', 'transactions']
     )
+    target: str = 'close'  # Primary target feature for prediction and visualization
     train_size: Optional[int] = 1  # Number of files to use for training (None means use all remaining files)
     test_size: int = 2   # Number of files to use for testing
     val_size: int = 2    # Number of files to use for validation
