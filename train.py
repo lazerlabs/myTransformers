@@ -99,7 +99,7 @@ def open_tensorboard_browser(port=6006, delay=3):
 
 @click.command()
 # Data Parameters
-@click.option('--data-dir', type=str, default=_config_defaults['data_dir'], show_default=True, help='Directory containing data files')
+@click.option('--data-dir', multiple=True, type=str, default=[_config_defaults['data_dir']], show_default=True, help='Directory(ies) containing data files (can be used multiple times)')
 @click.option('--stocks', type=str, default=None, help='Comma-separated list of stock tickers (e.g. AAPL,MSFT) - defaults to all stocks if not specified')
 @click.option('--features', type=str, default=','.join(_config_defaults['features']), show_default=True, help='Comma-separated list of features (e.g. volume,close,transactions)')
 @click.option('--train-size', type=int, default=_config_defaults['train_size'], show_default=True, help='Number of files to use for training')
@@ -259,6 +259,9 @@ def main(**kwargs):
     
     # Reinitialize file paths if data_dir was changed via CLI
     if kwargs.get('data_dir') is not None:
+        # Convert tuple to list if multiple directories provided
+        data_dirs = list(kwargs['data_dir']) if kwargs['data_dir'] else [_config_defaults['data_dir']]
+        config.data_dir = data_dirs
         config._initialize_file_paths()
     
     # Update model dimensions if features were changed via CLI

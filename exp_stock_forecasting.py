@@ -43,6 +43,10 @@ class Exp_Stock_Forecasting(Exp_Basic):
         # Global stats for normalization
         self.global_mean = None
         self.global_std = None
+        
+        # Cache for datasets to avoid reprocessing
+        self._dataset_cache = {}
+        self._dataloader_cache = {}
 
     def _build_model(self):
         """
@@ -132,6 +136,37 @@ class Exp_Stock_Forecasting(Exp_Basic):
         shuffle: bool, whether to shuffle the data
         max_samples: int, optional limit on the number of samples
         """
+        # Create cache key based on parameters that affect dataset creation
+        tickers_key = tuple(sorted(self.args.val_stocks)) if flag == 'val' and self.args.val_stocks else None
+        cache_key = (
+            flag, 
+            tuple(getattr(self.args, f'{flag}_files', [])),
+            tickers_key,
+            self.args.seq_len,
+            self.args.pred_len,
+            tuple(self.args.features),
+            self.args.mode,
+            self.args.interpolate_max_missing,
+            max_samples
+        )
+        
+        # Check if we already have this dataset/dataloader combination cached
+        if cache_key in self._dataset_cache:
+            print(f"Using cached dataset for {flag} split (no reprocessing needed)")
+            cached_dataset = self._dataset_cache[cache_key]
+            
+            # Create new dataloader with desired shuffle setting (since shuffle might vary)
+            from torch.utils.data import DataLoader
+            use_drop_last = len(cached_dataset) >= self.args.batch_size
+            data_loader = DataLoader(
+                cached_dataset,
+                batch_size=self.args.batch_size,
+                shuffle=shuffle,
+                num_workers=0,
+                drop_last=use_drop_last
+            )
+            return cached_dataset, data_loader
+        
         if flag == 'train':
             data_path_list = self.args.train_files
             tickers = self.args.stocks # Use configured stocks for training (could be None)
@@ -150,19 +185,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
              print(f"Warning: No data files found for flag '{flag}'. Returning None for dataset and dataloader.")
              return None, None
 
-        data_set = StockDataset(
-            file_paths=data_path_list,
-            tickers=tickers,
-            seq_len=self.args.seq_len,
-            pred_len=self.args.pred_len,
-            scale=self.args.scale,
-            features=self.args.features,
-            global_mean=self.global_mean,
-            global_std=self.global_std,
-            mode=self.args.mode,
-            interpolate_max_missing=self.args.interpolate_max_missing
-        )
-        _, data_loader = create_dataloader(
+        data_set, data_loader = create_dataloader(
             file_paths=data_path_list, # Pass the list of paths
             batch_size=self.args.batch_size,
             seq_len=self.args.seq_len,
@@ -177,6 +200,12 @@ class Exp_Stock_Forecasting(Exp_Basic):
             interpolate_max_missing=self.args.interpolate_max_missing,
             max_samples=max_samples
         )
+        
+        # Cache the dataset (not the dataloader since shuffle varies)
+        if data_set is not None:
+            self._dataset_cache[cache_key] = data_set
+            print(f"Cached dataset for {flag} split for future use")
+        
         return data_set, data_loader
 
     def _select_optimizer(self):
@@ -424,7 +453,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
             # Test evaluation at end of epoch
             print(f"\nRunning test evaluation for epoch {epoch + 1}...")
             test_mse = self.test(setting, test=1, writer=writer, epoch=epoch + 1)
-            if writer is not None:
+            if writer is not None and test_mse is not None and not isinstance(test_mse, tuple):
                 writer.add_scalar('Test/MSE_epoch', test_mse, epoch + 1)
 
             # TensorBoard validation logging
@@ -440,7 +469,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 scheduler.step(val_loss)
 
             # Log epoch completion
-            self.logger.log_training(epoch + 1, avg_epoch_train_loss, val_loss, test_mse, current_lr)
+            self.logger.log_training(epoch + 1, avg_epoch_train_loss, val_loss, test_mse if test_mse is not None and not isinstance(test_mse, tuple) else 0.0, current_lr)
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.6f} Val Loss: {3:.6f} Learning Rate: {4:.6f}".format(
                 epoch + 1, train_steps if self.args.max_train_iterations is None else i + 1, avg_epoch_train_loss, val_loss, current_lr))
@@ -561,11 +590,23 @@ class Exp_Stock_Forecasting(Exp_Basic):
 
         # Use appropriate data loader
         data_flag = 'test' if test else 'val'
+        
+        # IMPORTANT FIX: During training, test evaluation should use validation data/stocks
+        # Only use actual test data when called from train.py after training is complete
+        if test and epoch is not None:
+            # This is test evaluation during training - use validation data/stocks
+            data_flag = 'val'
+        elif test and epoch is None and hasattr(self.args, 'val_stocks') and self.args.val_stocks:
+            # This is final test but user specified validation stocks - use validation data/stocks for visualization
+            print(f"Using validation stocks for final test visualization: {self.args.val_stocks}")
+            data_flag = 'val'
+            
         data, data_loader = self._get_data(flag=data_flag, shuffle=False, max_samples=None)
 
         # Check if dataloader is valid
         if data_loader is None or len(data_loader) == 0:
              print(f"Warning: {data_flag.capitalize()} DataLoader is empty or could not be created. Skipping evaluation.")
+             print(f"Debug info: data_flag='{data_flag}', tickers used: {getattr(self.args, 'val_stocks' if data_flag == 'val' else 'stocks', 'None')}")
              # Return high loss for validation, or handle differently for test?
              return np.inf if not test else (np.nan, np.nan, np.nan) # Return NaNs for test metrics
 

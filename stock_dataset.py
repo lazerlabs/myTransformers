@@ -6,9 +6,15 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 import os
+import glob
 from configs import StockPredictionConfig
 from tqdm import tqdm
 import warnings
+
+
+# Import the recursive CSV finding function from utils
+from file_utils import find_csv_files
+
 
 class StockDataset(Dataset):
     """
@@ -53,7 +59,9 @@ class StockDataset(Dataset):
         Initializes the StockDataset.
 
         Args:
-            file_paths (Union[str, List[str]]): Path(s) to the CSV file(s) for this dataset split.
+            file_paths (Union[str, List[str]]): Path(s) to the CSV file(s) or directory(ies) for this dataset split.
+                                              If a directory is provided, all CSV files in that directory and its 
+                                              subdirectories will be processed recursively.
             tickers (list, optional): List of stock tickers to include.
             seq_len (int): Input sequence length (used for sliding_window mode).
             pred_len (int): Prediction sequence length.
@@ -89,11 +97,30 @@ class StockDataset(Dataset):
         if mode not in ['sliding_window', 'full_day']:
             raise ValueError(f"mode must be 'sliding_window' or 'full_day', got: {mode}")
 
-        # Convert single file path to list
+        # Expand file paths to include all CSV files recursively
         if isinstance(file_paths, str):
             file_paths = [file_paths]
-
-        print(f"\nProcessing {len(file_paths)} data file(s) for dataset in {mode} mode...")
+        
+        # Find all CSV files recursively
+        expanded_file_paths = []
+        for path in file_paths:
+            found_files = find_csv_files(path)
+            expanded_file_paths.extend(found_files)
+        
+        file_paths = expanded_file_paths
+        
+        if not file_paths:
+            warnings.warn("No CSV files found in the provided paths.")
+        
+        print(f"\nProcessing {len(file_paths)} CSV file(s) found recursively in {mode} mode...")
+        if len(file_paths) <= 10:  # Show file list if not too many
+            for fp in file_paths:
+                print(f"  - {fp}")
+        else:
+            print(f"  - {file_paths[0]}")
+            print(f"  - ... and {len(file_paths)-2} more files")
+            print(f"  - {file_paths[-1]}")
+        
         self.all_sequences = []
         self.max_input_length = 0  # Track maximum input sequence length for padding
 
@@ -471,21 +498,31 @@ def calculate_global_stats(file_paths, features, tickers=None):
         - This is only used for statistics calculation, not for training or inference.
 
     Args:
-        file_paths (list): List of paths to the training CSV files.
-        features (list): List of feature names to calculate stats for.
-        tickers (list, optional): List of stock tickers to include. Defaults to None (all tickers).
-
-    Returns:
-        tuple: (global_mean, global_std) as numpy arrays, or (None, None) if no data.
-    Args:
-        file_paths (list): List of paths to the training CSV files.
+        file_paths (Union[str, List[str]]): List of paths to CSV files or directories containing CSV files.
+                                           If directories are provided, all CSV files will be found recursively.
         features (list): List of feature names to calculate stats for.
         tickers (list, optional): List of stock tickers to include. Defaults to None (all tickers).
 
     Returns:
         tuple: (global_mean, global_std) as numpy arrays, or (None, None) if no data.
     """
-    print(f"\nCalculating global statistics from {len(file_paths)} training file(s)...")
+    # Expand file paths to include all CSV files recursively
+    if isinstance(file_paths, str):
+        file_paths = [file_paths]
+    
+    # Find all CSV files recursively
+    expanded_file_paths = []
+    for path in file_paths:
+        found_files = find_csv_files(path)
+        expanded_file_paths.extend(found_files)
+    
+    file_paths = expanded_file_paths
+    
+    if not file_paths:
+        warnings.warn("No CSV files found in the provided paths for global stats calculation.")
+        return None, None
+    
+    print(f"\nCalculating global statistics from {len(file_paths)} CSV file(s) found recursively...")
     all_feature_data = []
 
     for file_path in file_paths:
@@ -509,7 +546,7 @@ def calculate_global_stats(file_paths, features, tickers=None):
             continue
 
         # Filter tickers if specified
-        if tickers:
+        if tickers and 'ticker' in df.columns:
             df = df[df['ticker'].isin(tickers)]
 
         if df.empty:
@@ -571,7 +608,8 @@ def create_dataloader(file_paths: Union[str, List[str]],
         Only the final list of valid sequences is kept in memory for random access, ensuring scalability for large datasets.
 
     Args:
-        file_paths (Union[str, List[str]]): Path(s) to the CSV file(s) for this dataloader.
+        file_paths (Union[str, List[str]]): Path(s) to CSV file(s) or directory(ies) for this dataloader.
+                                          If directories are provided, all CSV files will be found recursively.
         batch_size (int): Batch size for the DataLoader.
         seq_len (int): Input sequence length.
         pred_len (int): Prediction sequence length.
@@ -583,6 +621,7 @@ def create_dataloader(file_paths: Union[str, List[str]],
         shuffle (bool): Whether to shuffle the data in the DataLoader. Should be True for training.
         mode (str): Mode of operation ('sliding_window' or 'full_day').
         interpolate_max_missing (int): Maximum number of consecutive NaNs to interpolate.
+        max_samples (Optional[int]): Maximum number of samples to use (for testing/debugging).
 
     Returns:
         Tuple[StockDataset, Optional[DataLoader]]: The created dataset and DataLoader (or None if dataset is empty).
@@ -590,7 +629,7 @@ def create_dataloader(file_paths: Union[str, List[str]],
     # Ensure file_paths is a list for consistent processing
     if isinstance(file_paths, str):
         file_paths = [file_paths]
-    print(f"\nCreating DataLoader for {len(file_paths)} file(s)...")
+    print(f"\nCreating DataLoader for {len(file_paths)} path(s)...")
     print(f"Tickers: {'All' if tickers is None else tickers}")
     print(f"Scale: {scale}")
 
@@ -621,12 +660,18 @@ def create_dataloader(file_paths: Union[str, List[str]],
          warnings.warn("DataLoader creation skipped because the dataset is empty.")
          return dataset, None # Return dataset and None for dataloader
 
+    # Use drop_last=False if dataset is smaller than batch_size to avoid empty dataloaders
+    # This is especially important for validation/test sets with limited data
+    use_drop_last = len(dataset) >= batch_size
+    if not use_drop_last:
+        print(f"Dataset size ({len(dataset)}) is smaller than batch size ({batch_size}). Using drop_last=False to avoid empty dataloader.")
+
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=shuffle, # Use the passed shuffle argument
         num_workers=0, # Consider increasing num_workers if I/O is a bottleneck
-        drop_last=True # Keep drop_last=True for consistent batch sizes during training
+        drop_last=use_drop_last # Use drop_last=False for small datasets
     )
 
     return dataset, dataloader

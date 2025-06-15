@@ -4,7 +4,11 @@ import os
 import glob
 import random
 import pandas as pd
-from typing import List, Optional
+from typing import List, Optional, Union
+import warnings
+
+# Import the recursive CSV finding function
+from file_utils import find_csv_files
 
 # Get workspace root (parent directory of myTransformer)
 WORKSPACE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -25,10 +29,10 @@ def get_config_defaults():
     
     return defaults
 
-@dataclass
+@dataclass  
 class StockPredictionConfig:
     # Data Parameters
-    data_dir: str = "dataset"  # Use local dataset directory
+    data_dir: Union[str, List[str]] = "dataset"  # Use local dataset directory
     stocks: Optional[List[str]] = None  # If None, will use all stocks in CSV
     features: List[str] = field(
         default_factory=lambda: ['close', 'volume', 'transactions']
@@ -172,12 +176,24 @@ class StockPredictionConfig:
     
     def _initialize_file_paths(self):
         """Initialize file paths based on current data_dir. Can be called after CLI overrides."""
-        # Get all available CSV files and ensure they are sorted chronologically
-        csv_files = sorted(glob.glob(os.path.join(self.data_dir, "*.csv")))
-        # random.shuffle(csv_files) # Removed shuffle to maintain chronological order
+        # Handle both single directory and list of directories
+        if isinstance(self.data_dir, str):
+            data_dirs = [self.data_dir]
+        else:
+            data_dirs = self.data_dir
+        
+        # Get all available CSV files recursively from all directories
+        csv_files = []
+        for data_dir in data_dirs:
+            found_files = find_csv_files(data_dir)
+            csv_files.extend(found_files)
+        
+        # Sort chronologically and remove duplicates
+        csv_files = sorted(list(set(csv_files)))
+        
         print(f"Found {len(csv_files)} data files, sorted chronologically.")
         if not csv_files:
-            raise ValueError(f"No CSV files found in {self.data_dir}")
+            raise ValueError(f"No CSV files found in {data_dirs}")
         
         # Split into train, validation, and test
         total_files = len(csv_files)

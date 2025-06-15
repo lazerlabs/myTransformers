@@ -364,8 +364,8 @@ class StockVisualizer:
         # Create subplot grid
         fig, axes = plt.subplots(num_plots, 1, figsize=(20, 6 * num_plots), squeeze=False)
 
-        # Select random samples to plot
-        sample_indices = np.random.choice(num_total_sequences, num_plots, replace=False)
+        # Intelligent sample selection to ensure stock diversity
+        sample_indices = self._select_diverse_samples(dataset, num_total_sequences, num_plots)
 
         for plot_idx, seq_idx in enumerate(sample_indices):
             ax = axes[plot_idx, 0]
@@ -592,6 +592,90 @@ class StockVisualizer:
         plt.close(fig)
         return None
         
+    def _select_diverse_samples(self, dataset, num_total_sequences, num_plots):
+        """
+        Intelligently select sample indices to ensure stock diversity.
+        
+        Strategy:
+        1. Try to select one sample from each unique stock
+        2. If more samples needed, fill randomly from remaining sequences
+        3. If fewer unique stocks than requested samples, use random sampling
+        
+        Args:
+            dataset: The dataset object containing sequence information
+            num_total_sequences: Total number of sequences available
+            num_plots: Number of samples to select
+            
+        Returns:
+            np.ndarray: Selected sample indices
+        """
+        try:
+            # Build a mapping of ticker -> list of sequence indices
+            ticker_to_indices = {}
+            
+            for seq_idx in range(num_total_sequences):
+                try:
+                    # Extract ticker information from sequence
+                    if hasattr(dataset, 'mode') and dataset.mode == 'full_day':
+                        if len(dataset.all_sequences[seq_idx]) >= 4:
+                            _, _, ticker_name, _ = dataset.all_sequences[seq_idx]
+                        else:
+                            _, _, ticker_name = dataset.all_sequences[seq_idx][:3]
+                    else:
+                        _, _, ticker_name = dataset.all_sequences[seq_idx]
+                    
+                    if ticker_name not in ticker_to_indices:
+                        ticker_to_indices[ticker_name] = []
+                    ticker_to_indices[ticker_name].append(seq_idx)
+                    
+                except Exception as e:
+                    # If we can't get ticker info, skip this sequence for diversity selection
+                    continue
+            
+            unique_tickers = list(ticker_to_indices.keys())
+            print(f"[DEBUG] Found {len(unique_tickers)} unique tickers: {unique_tickers}")
+            print(f"[DEBUG] Sequences per ticker: {[(ticker, len(indices)) for ticker, indices in ticker_to_indices.items()]}")
+            
+            selected_indices = []
+            
+            if len(unique_tickers) == 0:
+                # Fallback: no ticker info available, use random sampling
+                print("[DEBUG] No ticker information available, using random sampling")
+                return np.random.choice(num_total_sequences, num_plots, replace=False)
+            
+            # Phase 1: Select one sample from each unique ticker (up to num_plots)
+            tickers_to_sample = unique_tickers[:num_plots]  # Limit to requested number
+            
+            for ticker in tickers_to_sample:
+                # Randomly select one sequence from this ticker
+                ticker_indices = ticker_to_indices[ticker]
+                selected_idx = np.random.choice(ticker_indices)
+                selected_indices.append(selected_idx)
+                print(f"[DEBUG] Selected sequence {selected_idx} for ticker {ticker}")
+            
+            # Phase 2: If we need more samples, fill randomly from remaining sequences
+            if len(selected_indices) < num_plots:
+                # Get all indices not yet selected
+                remaining_indices = [i for i in range(num_total_sequences) if i not in selected_indices]
+                
+                if len(remaining_indices) > 0:
+                    additional_needed = num_plots - len(selected_indices)
+                    additional_samples = np.random.choice(
+                        remaining_indices, 
+                        min(additional_needed, len(remaining_indices)), 
+                        replace=False
+                    )
+                    selected_indices.extend(additional_samples)
+                    print(f"[DEBUG] Added {len(additional_samples)} additional random samples")
+            
+            print(f"[DEBUG] Final selected indices: {selected_indices}")
+            return np.array(selected_indices)
+            
+        except Exception as e:
+            print(f"[DEBUG] Error in diverse sampling: {e}, falling back to random sampling")
+            # Fallback to random sampling if anything goes wrong
+            return np.random.choice(num_total_sequences, num_plots, replace=False)
+
     def _set_time_axis_labels(self, ax, seq_len, pred_len):
         """Set informative time-based axis labels."""
         try:
