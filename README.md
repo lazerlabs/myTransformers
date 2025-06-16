@@ -1,29 +1,33 @@
 # Stock Market Forecasting with Inverted Transformers
 
-A comprehensive implementation of inverted transformer architectures for stock market time series forecasting, based on the paper ["iTransformer: Inverted Transformers Are Effective for Time Series Forecasting"](https://arxiv.org/abs/2310.06625).
+A **custom implementation** of inverted transformer architectures specifically designed for stock market time series forecasting, **inspired by and based on** the paper ["iTransformer: Inverted Transformers Are Effective for Time Series Forecasting"](https://arxiv.org/abs/2310.06625).
+
+> **Note**: This is a **derivative work** that adapts the iTransformer concept for stock market data. This is not the official implementation of the original paper.
 
 ## 🎯 Overview
 
-This project implements and evaluates inverted transformer architectures for stock market prediction. Unlike traditional transformers that treat time steps as tokens, inverted transformers treat **features as tokens**, enabling better multivariate correlation modeling - crucial for financial time series.
+This project implements and evaluates inverted transformer architectures specifically optimized for stock market prediction using intraday minute-bar data. Unlike traditional transformers that treat time steps as tokens, inverted transformers treat **features as tokens**, enabling better multivariate correlation modeling - crucial for financial time series.
 
 ### Key Features
 
+- **Stock Market Specialized**: Custom implementation optimized for OHLCV market data
 - **True Inverted Architecture**: Features (price, volume, transactions) become tokens instead of time steps
-- **Multivariate Correlation Modeling**: Superior handling of cross-feature relationships
+- **Sliding Window & Full Day Modes**: Flexible data processing for different prediction scenarios
 - **Multiple Model Support**: iTransformer, iInformer, iReformer, iFlowformer, and classic models for comparison
-- **Memory-Efficient Data Loading**: Processes large datasets without memory overflow
-- **Comprehensive Experiment Framework**: Easy comparison across models and configurations
+- **Memory-Efficient Data Loading**: Processes large datasets (20+ years of minute data) without memory overflow
+- **Comprehensive CLI Interface**: Easy experimentation with extensive configuration options
+- **Advanced Training Features**: TensorBoard integration, checkpointing, early stopping, multiple loss functions
 
 ## 🏗️ Architecture
 
 ### Inverted vs Traditional Transformers
 
-| Aspect | Traditional Transformer | **Inverted Transformer (ours)** |
+| Aspect | Traditional Transformer | **Inverted Transformer (our adaptation)** |
 |--------|------------------------|----------------------------------|
-| **Tokens** | Time steps | **Features (price, volume, etc.)** |
-| **Attention** | Across time | **Across features (multivariate)** |
+| **Tokens** | Time steps | **Features (close, volume, transactions)** |
+| **Attention** | Across time | **Across features (multivariate correlations)** |
 | **Embedding** | All features at timestep t → vector | **Time series of feature f → vector** |
-| **Advantage** | Temporal patterns | **Multivariate correlations** |
+| **Market Advantage** | Temporal patterns | **Cross-asset correlations, volume-price relationships** |
 
 ### Supported Models
 
@@ -32,34 +36,28 @@ This project implements and evaluates inverted transformer architectures for sto
 - **iReformer**: Inverted LSH attention for memory efficiency
 - **iFlowformer**: Inverted flow-based attention
 - **iFlashformer**: Inverted flash attention implementation
-- **Classic Models**: Transformer, Informer, Reformer for comparison
+- **Classic Models**: Transformer, Informer, Reformer for ablation studies
 
 ## 📁 Project Structure
 
 ```
 myTransformers/
 ├── README.md                    # This file
-├── train.py                     # Advanced CLI training interface  
-├── run.py                       # Compatible interface for scripts
-├── run_all_experiments.py       # Automated experiment runner
-├── configs.py                   # Configuration management
-├── exp_stock_forecasting.py     # Experiment orchestration
-├── stock_dataset.py             # Memory-efficient data loading
-├── docs/                        # Documentation
-│   ├── README.md               # Detailed usage guide  
-│   ├── model_size.md           # Model architecture and scaling
-│   └── EXPERIMENTS.md          # Experiment protocols
-├── scripts/                     # Experiment scripts
-│   ├── single_feature/         # Close price experiments
-│   ├── multi_feature/          # Multi-feature experiments  
-│   └── comparative/            # Model comparison
-├── models/                      # Model architectures
-├── layers/                      # Transformer components
-├── data_provider/              # Data preprocessing
-├── utils/                      # Utilities and visualization
-├── results/                    # Experiment outputs
+├── train.py                     # Main CLI training interface with 50+ options
+├── configs.py                   # Centralized configuration management
+├── exp_stock_forecasting.py     # Experiment orchestration and model training
+├── stock_dataset.py             # Memory-efficient sliding window data loading
+├── models/                      # Custom iTransformer implementations
+│   └── iTransformer.py         # Stock-optimized iTransformer model
+├── utils/                       # Utilities
+│   ├── metrics.py              # Evaluation metrics
+│   ├── loss.py                 # Custom loss functions (directional, etc.)
+│   ├── visualization.py        # Plotting and analysis tools
+│   └── logger.py              # Training and experiment logging
+├── results/                    # Experiment outputs and metrics
 ├── checkpoints/                # Model checkpoints
-└── figures/                    # Generated plots
+├── logs/                       # Training logs and TensorBoard data
+└── figures/                    # Generated prediction plots
 ```
 
 ## 🚀 Quick Start
@@ -67,105 +65,128 @@ myTransformers/
 ### 1. Installation
 
 ```bash
-pip install -r requirements.txt
+# Install dependencies (create requirements.txt based on your environment)
+pip install torch pandas numpy scikit-learn tqdm click tensorboard matplotlib seaborn
 ```
 
 ### 2. Data Preparation
 
-Ensure your stock data is in the `dataset/` directory with CSV files containing:
-- `ticker`: Stock symbol
-- `window_start`: Timestamp (nanoseconds)
+Ensure your stock data CSV files contain these columns:
+- `ticker`: Stock symbol (optional if one ticker per file)
+- `window_start`: Timestamp (nanoseconds or standard datetime)
 - `close`: Close price
 - `volume`: Trading volume  
 - `transactions`: Number of transactions
+- Additional OHLC columns supported
 
 ### 3. Run Your First Experiment
 
 ```bash
-# Quick test - iTransformer with close price only
-python train.py --model iTransformer --features close --train-epochs 5
+# Quick test with sliding window mode (default)
+python train.py --model iTransformer --features close --quick-test
 
-# Multi-feature experiment
-python train.py --model iTransformer --features close,volume,transactions --train-epochs 20
+# Full experiment with multiple features
+python train.py --model iTransformer \
+    --features close,volume,transactions \
+    --seq-len 60 --pred-len 30 \
+    --train-epochs 20 \
+    --mode sliding_window
+
+# Full day mode (variable length sequences)
+python train.py --model iTransformer \
+    --features close,volume,transactions \
+    --mode full_day \
+    --train-epochs 20
 ```
 
-### 4. Automated Experiments
+### 4. Monitor Training
 
+The training automatically starts TensorBoard:
 ```bash
-# Run all model comparisons
-python run_all_experiments.py
-
-# Or use bash scripts
-bash scripts/single_feature/iTransformer.sh
-bash scripts/comparative/model_comparison.sh
+# TensorBoard starts automatically on localhost:6006
+# Or manually: tensorboard --logdir=./logs
 ```
 
-## 💡 Key Differences from Original iTransformer
+## 💡 Key Differences from Original iTransformer Paper
 
-### Enhanced Features
+### Our Adaptations for Stock Markets
 
-1. **Stock Market Specialization**: Optimized for financial time series with proper handling of trading features
-2. **Memory Efficiency**: Processes large datasets file-by-file to avoid memory issues
-3. **Global Normalization**: Consistent scaling across all data splits
-4. **Comprehensive Evaluation**: Automated comparison across multiple models and feature sets
-5. **Production Ready**: Robust error handling, checkpointing, and resumable training
+1. **Financial Data Specialization**: 
+   - Optimized for OHLCV minute-bar data
+   - Handles missing values and market gaps
+   - Custom time features (minute, hour, day-of-week cycles)
+
+2. **Sliding Window Implementation**:
+   - Creates 361 sequences from 450 daily datapoints
+   - No cross-ticker contamination
+   - Comprehensive evaluation across all possible windows
+
+3. **Memory Efficiency**: 
+   - Processes 20+ years of data without memory issues
+   - File-by-file processing with chunking
+   - Global normalization across entire dataset
+
+4. **Advanced Training Pipeline**:
+   - Multiple loss functions (MSE, MAE, directional loss)
+   - Learning rate scheduling and early stopping
+   - Comprehensive checkpointing and resumable training
+
+5. **Evaluation Framework**:
+   - Extensive metrics (MSE, MAE, MAPE, RMSE, MSPE)
+   - Visualization of predictions vs actuals
+   - Per-ticker and aggregate performance analysis
 
 ### Implementation Highlights
 
-- **True Feature Inversion**: Each feature becomes a token with its own time series embedding
-- **Attention Across Features**: Models correlations between price, volume, and transaction patterns
-- **Flexible Architecture**: Easy to add new models and compare with classics
-- **Scalable Data Loading**: Handles datasets too large for memory
+- **True Feature Tokenization**: Each market feature becomes a token with its own time series embedding
+- **Market Correlation Modeling**: Attention across price, volume, and transaction patterns
+- **Flexible Sequence Modes**: Both sliding window and full-day prediction scenarios
+- **Production-Grade**: Robust error handling, logging, and monitoring
 
-## 📊 Expected Results
+## 📊 Understanding the Evaluation
 
-Based on the iTransformer paper and our stock market adaptation:
+### What Test Results Represent
 
-### Performance Hierarchy
-1. **iTransformer (Multi-feature)** → Best multivariate modeling
-2. **iInformer (Multi-feature)** → Good performance with efficiency  
-3. **iTransformer (Single-feature)** → Strong baseline
-4. **Classic Transformer** → Comparison baseline
+When using sliding window mode with 20 years of data:
+- **Per ticker per day**: ~361 sliding windows (450 - 60 - 30 + 1)
+- **Total evaluation scale**: Millions of 60→30 minute predictions
+- **Coverage**: All possible market conditions, times of day, volatility regimes
+- **Statistical robustness**: Aggregated performance across comprehensive scenarios
 
-### Key Insights
-- **Multi-feature > Single-feature**: Volume and transaction data improve predictions
-- **Inverted > Classic**: Better multivariate correlation modeling
-- **Feature attention**: More interpretable than temporal attention for trading
+### Metrics Interpretation
+- **MSE/MAE**: Average prediction error across all sliding windows
+- **MAPE**: Percentage error relative to actual prices
+- **Comprehensive**: Not cherry-picked - includes all market conditions
 
 ## 🔬 Research Applications
 
-### Experiment Types
+### Experiment Types Available
 
-1. **Architecture Comparison**: Inverted vs Classic transformers
-2. **Feature Analysis**: Impact of different market features
-3. **Prediction Horizons**: Short-term (15min) to long-term (60min) forecasting
-4. **Model Scaling**: Effect of model size on performance
+1. **Architecture Comparison**: `--model iTransformer` vs `--model Transformer`
+2. **Feature Analysis**: `--features close` vs `--features close,volume,transactions`
+3. **Sequence Modes**: `--mode sliding_window` vs `--mode full_day`
+4. **Loss Functions**: `--loss-type mse` vs `--loss-type directional`
+5. **Prediction Horizons**: `--pred-len 15` vs `--pred-len 60`
 
-### Evaluation Metrics
+### Available CLI Options
 
-- **Accuracy**: MSE, MAE, MAPE
-- **Efficiency**: Training time, memory usage
-- **Interpretability**: Attention pattern analysis
-- **Robustness**: Performance across different stocks and time periods
-
-## 📖 Documentation
-
-- [`docs/README.md`](docs/README.md): Detailed usage guide and API reference
-- [`docs/model_size.md`](docs/model_size.md): Model architecture and parameter scaling
-- [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md): Experiment protocols and analysis
+The `train.py` script provides 50+ configuration options including:
+- Model architecture parameters (`--d-model`, `--n-heads`, `--e-layers`)
+- Training parameters (`--learning-rate`, `--batch-size`, `--train-epochs`)
+- Data parameters (`--stocks`, `--features`, `--seq-len`, `--pred-len`)
+- Advanced options (checkpointing, logging, TensorBoard, validation)
 
 ## 🤝 Contributing
 
-This implementation is designed for research and experimentation. Key areas for extension:
-
-- Additional inverted architectures
-- New financial features and data sources  
-- Advanced evaluation metrics
-- Hyperparameter optimization frameworks
+This is a research-focused implementation designed for:
+- Experimenting with inverted transformers on financial data
+- Comparing different architectural approaches
+- Evaluating feature combinations and prediction horizons
+- Extending to new financial datasets and timeframes
 
 ## 📄 Citation
 
-If you use this implementation in your research, please cite:
+This work is based on the original iTransformer paper. If you use this implementation, please cite the original paper:
 
 ```bibtex
 @article{liu2023itransformer,
@@ -176,6 +197,13 @@ If you use this implementation in your research, please cite:
 }
 ```
 
+**Note**: This repository contains a custom implementation adapted for stock market forecasting. For the official implementation of the paper, please refer to the authors' original repository.
+
 ## 📞 Support
 
-For questions about the implementation or experiments, please refer to the documentation in the `docs/` directory or open an issue. 
+For questions about this specific implementation:
+- Check the CLI help: `python train.py --help`
+- Review configuration options in `configs.py`
+- Examine example usage in the training logs
+
+This implementation focuses specifically on stock market applications of inverted transformers and may differ significantly from other iTransformer implementations. 
