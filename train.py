@@ -191,6 +191,7 @@ def open_tensorboard_browser(port=6006, delay=3):
 
 # TensorBoard Parameters - CLI-only options with their own defaults
 @click.option('--auto-start-tensorboard/--no-auto-start-tensorboard', default=True, help='Automatically start TensorBoard server')
+@click.option('--tensorboard-host', type=str, default='0.0.0.0', show_default=True, help='Host for TensorBoard server')
 @click.option('--tensorboard-port', type=int, default=6006, show_default=True, help='Port for TensorBoard server')
 @click.option('--open-browser/--no-open-browser', default=False, help='Automatically open TensorBoard in browser')
 
@@ -229,7 +230,7 @@ def main(**kwargs):
     # Override config with provided CLI arguments (CLI now has config defaults, so this is clean)
     for key, value in kwargs.items():
         # Skip CLI-only arguments that don't have config counterparts
-        if key in ['auto_start_tensorboard', 'tensorboard_port', 'open_browser', 'resume_checkpoint', 'quick_test', 'extract_embeddings_only', 'seed']:
+        if key in ['auto_start_tensorboard', 'tensorboard_host', 'tensorboard_port', 'open_browser', 'resume_checkpoint', 'quick_test', 'extract_embeddings_only', 'seed']:
             continue
             
         # Convert kebab-case to snake_case
@@ -341,7 +342,7 @@ def main(**kwargs):
         tensorboard_process = start_tensorboard(
             log_dir=config.logs_dir,
             port=kwargs['tensorboard_port'],
-            host='0.0.0.0'
+            host=kwargs['tensorboard_host']
         )
         
         # Auto-open browser if requested
@@ -349,7 +350,7 @@ def main(**kwargs):
             open_tensorboard_browser(port=kwargs['tensorboard_port'], delay=3)
     else:
         print(f"TensorBoard auto-start disabled. To monitor training manually run:")
-        print(f"tensorboard --logdir={config.logs_dir} --port={kwargs['tensorboard_port']}")
+        print(f"tensorboard --logdir={config.logs_dir} --host={kwargs['tensorboard_host']} --port={kwargs['tensorboard_port']}")
 
     # TensorBoard logging setup
     writer = SummaryWriter(log_dir=config.logs_dir)
