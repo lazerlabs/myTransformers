@@ -130,12 +130,52 @@ class Exp_Stock_Forecasting(Exp_Basic):
         return model
 
 
-    def _get_data(self, flag, shuffle=True, max_samples=None):
+    def _get_data(self, flag, shuffle=True, max_samples=None, enable_streaming=None):
         """
         flag: 'train', 'val', or 'test'
         shuffle: bool, whether to shuffle the data
         max_samples: int, optional limit on the number of samples
+        enable_streaming: bool, whether to enable streaming mode (None = auto-detect based on flag and file count)
         """
+        # Get streaming configuration from args
+        if enable_streaming is None:
+            # Check if streaming is explicitly enabled/disabled in args
+            if hasattr(self.args, 'enable_streaming') and self.args.enable_streaming is not None:
+                if self.args.enable_streaming == 'on':
+                    enable_streaming = True
+                elif self.args.enable_streaming == 'off':
+                    enable_streaming = False
+                elif self.args.enable_streaming == True:
+                    enable_streaming = True
+                elif self.args.enable_streaming == False:
+                    enable_streaming = False  
+                else:  # 'auto' or other
+                    enable_streaming = None
+            else:
+                enable_streaming = None
+        
+        # IMPORTANT: Only allow streaming for training data, never for validation/test
+        if flag != 'train':
+            enable_streaming = False
+            print(f"🔒 Streaming disabled for {flag} data (streaming only supported for training)")
+        elif enable_streaming is None:
+            # Auto-detect streaming mode for training data only
+            data_path_list = self.args.train_files
+            # Use threshold from args if available, otherwise default to 50
+            threshold = getattr(self.args, 'streaming_threshold', 50)
+            enable_streaming = len(data_path_list) > threshold
+            print(f"🤖 Auto-detecting streaming mode: {len(data_path_list)} files vs threshold {threshold} = {'ENABLED' if enable_streaming else 'DISABLED'}")
+        
+        # If streaming is not enabled, use the original cached approach
+        if not enable_streaming:
+            print(f"📁 Using traditional cached loading for {flag} data")
+            return self._get_data_cached(flag, shuffle, max_samples)
+        
+        # Streaming mode implementation
+        return self._get_data_streaming(flag, shuffle, max_samples)
+    
+    def _get_data_cached(self, flag, shuffle=True, max_samples=None):
+        """Original cached data loading implementation"""
         # Create cache key based on parameters that affect dataset creation
         tickers_key = tuple(sorted(self.args.val_stocks)) if flag == 'val' and self.args.val_stocks else None
         cache_key = (
@@ -207,6 +247,102 @@ class Exp_Stock_Forecasting(Exp_Basic):
             print(f"Cached dataset for {flag} split for future use")
         
         return data_set, data_loader
+    
+    def _get_data_streaming(self, flag, shuffle=True, max_samples=None):
+        """Streaming data loading implementation"""
+        print(f"🚀 Using streaming mode for {flag} data loading")
+        
+        if flag == 'train':
+            data_path_list = self.args.train_files
+            tickers = self.args.stocks
+        elif flag == 'val':
+             data_path_list = self.args.val_files
+             tickers = self.args.val_stocks
+        else:
+             data_path_list = self.args.test_files
+             tickers = self.args.stocks
+
+        # Determine if scaling should be used
+        scale_data = self.args.scale and self.global_mean is not None and self.global_std is not None
+
+        # Ensure data_path_list is not empty
+        if not data_path_list:
+             print(f"Warning: No data files found for flag '{flag}'. Returning None for dataset and dataloader.")
+             return None, None
+
+        # Import streaming components
+        try:
+            from streaming_dataset import create_streaming_dataloader, StreamingConfig
+        except ImportError:
+            print("❌ Streaming dataset not available. Falling back to cached loading.")
+            return self._get_data_cached(flag, shuffle, max_samples)
+        
+        # Configure streaming parameters - use CLI args if available, otherwise smart defaults
+        total_files = len(data_path_list)
+        
+        # Get CLI parameters if available
+        initial_chunk_size = getattr(self.args, 'streaming_initial_chunk_size', None)
+        streaming_chunk_size = getattr(self.args, 'streaming_chunk_size', None)
+        max_memory_chunks = getattr(self.args, 'streaming_max_memory_chunks', None)
+        enable_background = getattr(self.args, 'streaming_enable_background', None)
+        
+        # Apply smart defaults based on dataset size if not specified
+        if initial_chunk_size is None:
+            if total_files > 1000:
+                initial_chunk_size = 15
+            elif total_files > 100:
+                initial_chunk_size = 25
+            else:
+                initial_chunk_size = min(50, total_files)
+        
+        if streaming_chunk_size is None:
+            if total_files > 1000:
+                streaming_chunk_size = 8
+            elif total_files > 100:
+                streaming_chunk_size = 15
+            else:
+                streaming_chunk_size = 20
+        
+        if max_memory_chunks is None:
+            if total_files > 1000:
+                max_memory_chunks = 30
+            elif total_files > 100:
+                max_memory_chunks = 50
+            else:
+                max_memory_chunks = 100
+        
+        if enable_background is None:
+            enable_background = total_files > 20
+        
+        streaming_config = StreamingConfig(
+            initial_chunk_size=initial_chunk_size,
+            streaming_chunk_size=streaming_chunk_size,
+            max_memory_chunks=max_memory_chunks,
+            enable_background_processing=enable_background,
+            safe_mode=getattr(self.args, 'streaming_safe_mode', False)
+        )
+        
+        print(f"📊 Streaming config: initial={streaming_config.initial_chunk_size}, "
+              f"streaming={streaming_config.streaming_chunk_size}, "
+              f"background={streaming_config.enable_background_processing}")
+
+        data_set, data_loader = create_streaming_dataloader(
+            file_paths=data_path_list,
+            batch_size=self.args.batch_size,
+            seq_len=self.args.seq_len,
+            pred_len=self.args.pred_len,
+            scale=scale_data,
+            tickers=tickers,
+            features=self.args.features,
+            global_mean=self.global_mean,
+            global_std=self.global_std,
+            shuffle=shuffle,
+            mode=self.args.mode,
+            interpolate_max_missing=self.args.interpolate_max_missing,
+            streaming_config=streaming_config
+        )
+        
+        return data_set, data_loader
 
     def _select_optimizer(self):
         model_optim = optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
@@ -269,7 +405,19 @@ class Exp_Stock_Forecasting(Exp_Basic):
              print("Warning: Training DataLoader is empty. Aborting training.")
              return None # Or raise an exception
 
-        train_steps = len(train_loader)
+        # Handle streaming vs. regular dataloaders
+        is_streaming = hasattr(train_loader, 'get_status')
+        if is_streaming:
+            print("🌊 Detected streaming dataloader - will monitor progress during training")
+            train_steps = len(train_loader)  # Initial size
+            # Print initial status with more detail
+            status = train_loader.get_status()
+            print(f"🚀 Starting with {status['total_sequences']:,} sequences from {status['processed_files']} files")
+            print(f"📈 Background processing will add {status['remaining_files']} more files during training")
+            train_loader.print_status()
+        else:
+            train_steps = len(train_loader)
+        
         early_stopping = EarlyStopping(patience=self.args.patience, verbose=True)
         
         # Initialize criterion
@@ -333,7 +481,15 @@ class Exp_Stock_Forecasting(Exp_Basic):
 
             self.model.train()
             epoch_time = time.time()
-            pbar = tqdm(enumerate(train_loader), total=train_steps, desc=f"Epoch {epoch + 1}/{self.args.train_epochs}")
+            
+            # For streaming dataloaders, we need to track dynamic total steps
+            if is_streaming:
+                current_train_steps = len(train_loader)
+                pbar = tqdm(enumerate(train_loader), total=current_train_steps, desc=f"Epoch {epoch + 1}/{self.args.train_epochs}")
+                last_checked_steps = current_train_steps
+                steps_check_interval = 10  # Check for size changes every N iterations
+            else:
+                pbar = tqdm(enumerate(train_loader), total=train_steps, desc=f"Epoch {epoch + 1}/{self.args.train_epochs}")
 
             for i, batch_data in pbar:
                 if batch_data is None:
@@ -348,6 +504,16 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 iter_count += 1
                 global_iter += 1
                 model_optim.zero_grad()
+
+                # For streaming datasets, periodically check if dataset size has grown
+                if is_streaming and iter_count % steps_check_interval == 0:
+                    new_train_steps = len(train_loader)
+                    if new_train_steps != last_checked_steps:
+                        # Update progress bar total
+                        pbar.total = new_train_steps
+                        pbar.refresh()
+                        last_checked_steps = new_train_steps
+                        current_train_steps = new_train_steps
 
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
@@ -406,17 +572,42 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 if global_iter % log_every_n_iterations == 0:
                     elapsed_time = time.time() - epoch_time
                     iters_per_sec = iter_count / elapsed_time if elapsed_time > 0 else 0
-                    eta_seconds = (train_steps - i - 1) / iters_per_sec if iters_per_sec > 0 else 0
-                    eta_str = f"{int(eta_seconds // 60):02d}:{int(eta_seconds % 60):02d}"
                     
-                    print(f"\n[Epoch {epoch + 1}/{self.args.train_epochs}] "
-                          f"[Iter {global_iter}] "
-                          f"[Iter {i+1}/{train_steps}] "
-                          f"Loss: {current_loss:.6f} "
-                          f"Running Avg: {running_avg_loss:.6f} "
-                          f"LR: {current_lr:.2e} "
-                          f"Speed: {iters_per_sec:.1f} it/s "
-                          f"ETA: {eta_str}")
+                    # For streaming datasets, use current dynamic size; for regular datasets, use original calculation
+                    if is_streaming:
+                        current_total_steps = len(train_loader)
+                        eta_seconds = (current_total_steps - i - 1) / iters_per_sec if iters_per_sec > 0 else 0
+                        eta_str = f"{int(eta_seconds // 60):02d}:{int(eta_seconds % 60):02d}"
+                        
+                        status_msg = (f"\n[Epoch {epoch + 1}/{self.args.train_epochs}] "
+                                    f"[Iter {global_iter}] "
+                                    f"[Iter {i+1}/{current_total_steps}] "
+                                    f"Loss: {current_loss:.6f} "
+                                    f"Running Avg: {running_avg_loss:.6f} "
+                                    f"LR: {current_lr:.2e} "
+                                    f"Speed: {iters_per_sec:.1f} it/s "
+                                    f"ETA: {eta_str}")
+                    else:
+                        eta_seconds = (train_steps - i - 1) / iters_per_sec if iters_per_sec > 0 else 0
+                        eta_str = f"{int(eta_seconds // 60):02d}:{int(eta_seconds % 60):02d}"
+                        
+                        status_msg = (f"\n[Epoch {epoch + 1}/{self.args.train_epochs}] "
+                                    f"[Iter {global_iter}] "
+                                    f"[Iter {i+1}/{train_steps}] "
+                                    f"Loss: {current_loss:.6f} "
+                                    f"Running Avg: {running_avg_loss:.6f} "
+                                    f"LR: {current_lr:.2e} "
+                                    f"Speed: {iters_per_sec:.1f} it/s "
+                                    f"ETA: {eta_str}")
+                    
+                    # Add streaming status if available
+                    if is_streaming:
+                        status = train_loader.get_status()
+                        status_msg += (f"\n📊 Streaming Status: {status['processed_files']}/{status['total_files']} files processed, "
+                                     f"{status['total_sequences']} sequences available, "
+                                     f"Background: {'Active' if status['background_active'] else 'Inactive'}")
+                    
+                    print(status_msg)
 
                 # Save checkpoint based on configuration
                 if (self.args.save_checkpoint_every_n_iterations is not None and 
@@ -431,12 +622,22 @@ class Exp_Stock_Forecasting(Exp_Basic):
                     }, checkpoint_path)
                     print(f"Checkpoint saved at iteration {global_iter}: {checkpoint_path}")
 
-                # Enhanced progress bar description
-                pbar.set_description(f"Epoch {epoch + 1}/{self.args.train_epochs} | "
-                                   f"Iter {i+1}/{train_steps} | "
-                                   f"Loss: {current_loss:>7.4f} | "
-                                   f"Avg: {running_avg_loss:>7.4f} | "
-                                   f"LR: {current_lr:.2e}")
+                # Enhanced progress bar description with streaming status
+                if is_streaming:
+                    status = train_loader.get_status()
+                    current_total_steps = len(train_loader)
+                    pbar.set_description(f"Epoch {epoch + 1}/{self.args.train_epochs} | "
+                                       f"Iter {i+1}/{current_total_steps} | "
+                                       f"Loss: {current_loss:>7.4f} | "
+                                       f"Avg: {running_avg_loss:>7.4f} | "
+                                       f"LR: {current_lr:.2e} | "
+                                       f"Files: {status['processed_files']}/{status['total_files']}")
+                else:
+                    pbar.set_description(f"Epoch {epoch + 1}/{self.args.train_epochs} | "
+                                       f"Iter {i+1}/{train_steps} | "
+                                       f"Loss: {current_loss:>7.4f} | "
+                                       f"Avg: {running_avg_loss:>7.4f} | "
+                                       f"LR: {current_lr:.2e}")
 
                 if self.args.max_train_iterations is not None and i + 1 >= self.args.max_train_iterations:
                     print(f"\nReached max_train_iterations ({self.args.max_train_iterations}). Stopping epoch {epoch + 1} early.")
@@ -445,7 +646,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
             avg_epoch_train_loss = np.average(epoch_train_loss) if epoch_train_loss else 0.0
             train_losses.append(avg_epoch_train_loss)
 
-            # Validation
+            # Validation  
             print(f"\nRunning validation for epoch {epoch + 1}...")
             val_loss = self.test(setting, test=0)
             val_losses.append(val_loss)
@@ -471,8 +672,15 @@ class Exp_Stock_Forecasting(Exp_Basic):
             # Log epoch completion
             self.logger.log_training(epoch + 1, avg_epoch_train_loss, val_loss, test_mse if test_mse is not None and not isinstance(test_mse, tuple) else 0.0, current_lr)
 
+            # For streaming datasets, use the final dataset size for step count
+            if is_streaming:
+                final_steps = len(train_loader)
+                actual_steps = final_steps if self.args.max_train_iterations is None else i + 1
+            else:
+                actual_steps = train_steps if self.args.max_train_iterations is None else i + 1
+                
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.6f} Val Loss: {3:.6f} Learning Rate: {4:.6f}".format(
-                epoch + 1, train_steps if self.args.max_train_iterations is None else i + 1, avg_epoch_train_loss, val_loss, current_lr))
+                epoch + 1, actual_steps, avg_epoch_train_loss, val_loss, current_lr))
 
             # Early Stopping
             early_stopping(val_loss, self.model, path)
@@ -496,10 +704,30 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 self.logger.logger.info(f"Epoch checkpoint saved: {epoch_checkpoint_path}")
 
             print(f"Epoch {epoch + 1} completed in {time.time() - epoch_time:.2f} seconds.")
+            
+            # End epoch for streaming datasets (allows safe dataset expansion)
+            if is_streaming:
+                train_loader.end_epoch()
 
 
         # --- End of Training ---
         print("\nTraining finished.")
+        
+        # Print streaming summary and cleanup resources
+        if is_streaming:
+            final_status = train_loader.get_status()
+            print(f"\n📊 Streaming Summary:")
+            print(f"  📁 Total files processed: {final_status['processed_files']}/{final_status['total_files']}")
+            print(f"  📈 Final dataset size: {final_status['total_sequences']:,} sequences")
+            print(f"  ✅ All data {'fully' if final_status['processing_complete'] else 'partially'} processed")
+            if not final_status['processing_complete']:
+                print(f"  ⚠️  Note: {final_status['remaining_files']} files were not processed")
+            
+            # Cleanup streaming resources to prevent interference with validation/testing
+            print(f"🧹 Cleaning up streaming resources...")
+            if hasattr(train_loader, 'streaming_dataset'):
+                train_loader.streaming_dataset.cleanup()
+            print(f"✅ Streaming cleanup completed")
 
         # Plot training metrics (epoch-level)
         metrics = {
@@ -674,7 +902,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
             self.logger.logger.info(f"Validation - MSE: {mse:.6f}, MAE: {mae:.6f}")
 
         # Create visualizer instance
-        visualizer = StockVisualizer(save_dir=f'./figures/{setting}/')
+        visualizer = StockVisualizer(save_dir=f'./figures/{setting}/', feature_names=self.args.features)
         
         # Find index of target feature for plotting
         try:
@@ -691,7 +919,8 @@ class Exp_Stock_Forecasting(Exp_Basic):
             predictions=preds,
             dataset=data,  # Pass the full test dataset
             feature_idx=target_feature_idx,
-            n_samples_to_plot=3
+            n_samples_to_plot=3,
+            config=self.args  # Pass config to enable dynamic stock plotting
         )
 
         # Only perform saving/plotting/metric calculation for final test run
@@ -745,7 +974,8 @@ class Exp_Stock_Forecasting(Exp_Basic):
                             dataset=data, 
                             feature_idx=close_feature_idx,
                             n_samples_to_plot=3,
-                            return_fig=True
+                            return_fig=True,
+                            config=self.args  # Pass config to enable dynamic stock plotting
                         )
                         if writer is not None and epoch is not None and fig is not None:
                             writer.add_figure('Test/Predictions', fig, epoch)

@@ -137,6 +137,15 @@ class StockPredictionConfig:
     max_train_samples: Optional[int] = None  # Limit training samples for testing (None = unlimited)
     max_test_samples: Optional[int] = None   # Limit test samples for testing (None = unlimited)
     
+    # Streaming Data Loading Parameters
+    enable_streaming: Optional[bool] = None  # Auto-detect based on file count (None = auto, True = force on, False = force off)
+    streaming_threshold: int = 50  # Number of files above which streaming is auto-enabled
+    streaming_initial_chunk_size: int = 20  # Number of files to process in initial chunk
+    streaming_chunk_size: int = 10  # Number of files to process in each background chunk
+    streaming_max_memory_chunks: int = 50  # Maximum number of chunk datasets to keep in memory
+    streaming_enable_background: bool = True  # Whether to enable background processing
+    streaming_safe_mode: bool = False  # If True, only expand dataset between epochs (safer but less dynamic)
+    
     def __post_init__(self):
         # Update model parameters based on number of features
         self._update_model_dimensions()

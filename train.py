@@ -189,6 +189,15 @@ def open_tensorboard_browser(port=6006, delay=3):
 @click.option('--log-every-n-iterations', type=int, default=_config_defaults['log_every_n_iterations'], show_default=True, help='Log detailed metrics every N iterations')
 @click.option('--save-iteration-metrics/--no-save-iteration-metrics', default=_config_defaults['save_iteration_metrics'], help='Save iteration-level metrics for visualization')
 
+# Streaming Parameters
+@click.option('--enable-streaming', type=click.Choice(['auto', 'on', 'off']), default='auto', show_default=True, help='Streaming mode: auto (detect based on file count), on (force enable), off (force disable)')
+@click.option('--streaming-threshold', type=int, default=_config_defaults['streaming_threshold'], show_default=True, help='File count threshold for auto-enabling streaming')
+@click.option('--streaming-initial-chunk-size', type=int, default=_config_defaults['streaming_initial_chunk_size'], show_default=True, help='Number of files in initial chunk')
+@click.option('--streaming-chunk-size', type=int, default=_config_defaults['streaming_chunk_size'], show_default=True, help='Number of files per background chunk')
+@click.option('--streaming-max-memory-chunks', type=int, default=_config_defaults['streaming_max_memory_chunks'], show_default=True, help='Maximum chunks to keep in memory')
+@click.option('--streaming-enable-background/--no-streaming-enable-background', default=_config_defaults['streaming_enable_background'], help='Enable background processing for streaming')
+@click.option('--streaming-safe-mode/--no-streaming-safe-mode', default=_config_defaults['streaming_safe_mode'], help='Safe mode: only expand dataset between epochs')
+
 # TensorBoard Parameters - CLI-only options with their own defaults
 @click.option('--auto-start-tensorboard/--no-auto-start-tensorboard', default=True, help='Automatically start TensorBoard server')
 @click.option('--tensorboard-host', type=str, default='0.0.0.0', show_default=True, help='Host for TensorBoard server')
@@ -206,8 +215,12 @@ def main(**kwargs):
     # Set up seed
     setup_seed(kwargs['seed'])
     
-    # Load base config
-    config = StockPredictionConfig()
+    # Load base config - temporarily skip file initialization if data_dir will be overridden
+    if kwargs.get('data_dir') is not None:
+        # Create config without triggering file initialization
+        config = StockPredictionConfig(data_dir=kwargs['data_dir'])
+    else:
+        config = StockPredictionConfig()
     
     # Apply quick test overrides first if specified
     if kwargs['quick_test']:
@@ -252,6 +265,14 @@ def main(**kwargs):
                 setattr(config, config_key, json.loads(value))
             else:
                 setattr(config, config_key, value)
+        elif config_key == 'enable_streaming':
+            # Handle streaming mode setting
+            if value == 'auto':
+                setattr(config, config_key, None)  # None means auto-detect
+            elif value == 'on':
+                setattr(config, config_key, True)
+            elif value == 'off':
+                setattr(config, config_key, False)
         elif hasattr(config, config_key):
             # Direct assignment for other valid config fields
             setattr(config, config_key, value)

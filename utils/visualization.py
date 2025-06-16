@@ -7,12 +7,16 @@ from configs import StockPredictionConfig
 import glob
 
 class StockVisualizer:
-    def __init__(self, save_dir='./figures/'):
+    def __init__(self, save_dir='./figures/', feature_names=None):
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         self.save_dir = save_dir
-        # Updated feature names to match dataset order
-        self.feature_names = StockPredictionConfig().features
+        # Use provided feature names or default fallback
+        if feature_names is not None:
+            self.feature_names = feature_names
+        else:
+            # Default feature names - avoid creating new config instance
+            self.feature_names = ['close', 'volume', 'transactions']
         
     def plot_training_metrics(self, metrics, title='Training Metrics'):
         """Plot training, validation and test losses"""
@@ -280,7 +284,7 @@ class StockVisualizer:
         plt.savefig(os.path.join(self.save_dir, 'feature_importance.png'))
         plt.close()
 
-    def plot_all_stocks_predictions(self, true_values, predictions, dataset, feature_idx=1, n_samples_to_plot=1, return_fig=False):
+    def plot_all_stocks_predictions(self, true_values, predictions, dataset, feature_idx=1, n_samples_to_plot=1, return_fig=False, config=None):
         """
         Legacy method - redirects to comprehensive plotting.
         For backward compatibility, this attempts to work with limited data.
@@ -305,10 +309,11 @@ class StockVisualizer:
             dataset=dataset,
             feature_idx=feature_idx,
             n_samples_to_plot=n_samples_to_plot,
-            return_fig=return_fig
+            return_fig=return_fig,
+            config=config
         )
 
-    def plot_comprehensive_predictions(self, historical_data, historical_marks, true_values, predictions, dataset, feature_idx=1, n_samples_to_plot=3, return_fig=False):
+    def plot_comprehensive_predictions(self, historical_data, historical_marks, true_values, predictions, dataset, feature_idx=1, n_samples_to_plot=3, return_fig=False, config=None):
         """
         Plot comprehensive predictions showing:
         1. Historical input sequence (60 points)
@@ -323,8 +328,9 @@ class StockVisualizer:
             predictions (np.ndarray): Predicted future values. Shape: [total_sequences, pred_len, features]
             dataset (StockDataset): The dataset instance (used for denormalization).
             feature_idx (int): Index of the feature to plot (e.g., 1 for 'close').
-            n_samples_to_plot (int): Number of sample sequences to plot.
+            n_samples_to_plot (int): Default number of sample sequences to plot.
             return_fig (bool): Whether to return the figure object.
+            config (StockPredictionConfig): Config object to check if val_stocks were explicitly specified.
         """
         print("\n--- Starting Comprehensive Visualization ---")
         print(f"[DEBUG] historical_data shape: {historical_data.shape}")
@@ -351,7 +357,46 @@ class StockVisualizer:
             feature_idx = 0
 
         num_total_sequences = historical_data.shape[0]
-        num_plots = min(n_samples_to_plot, num_total_sequences)
+        
+        # NEW: Dynamically determine number of plots based on validation stocks
+        # If config is provided and val_stocks were explicitly specified (non-default), plot all of them
+        if config is not None and hasattr(config, 'val_stocks') and config.val_stocks:
+            # Check if we have ticker information available to identify unique stocks
+            try:
+                unique_tickers = set()
+                for seq_idx in range(min(100, num_total_sequences)):  # Sample first 100 to avoid overhead
+                    try:
+                        if hasattr(dataset, 'mode') and dataset.mode == 'full_day':
+                            if len(dataset.all_sequences[seq_idx]) >= 4:
+                                _, _, ticker_name, _ = dataset.all_sequences[seq_idx]
+                            else:
+                                _, _, ticker_name = dataset.all_sequences[seq_idx][:3]
+                        else:
+                            _, _, ticker_name = dataset.all_sequences[seq_idx]
+                        unique_tickers.add(ticker_name)
+                    except:
+                        continue
+                
+                # If we found unique tickers and they match validation stocks, use all of them
+                if unique_tickers:
+                    val_stocks_set = set(config.val_stocks)
+                    tickers_in_data = unique_tickers.intersection(val_stocks_set)
+                    if tickers_in_data:
+                        num_plots = len(tickers_in_data)
+                        print(f"[INFO] Found validation stocks {sorted(tickers_in_data)} in data. Plotting all {num_plots} stocks.")
+                    else:
+                        num_plots = min(n_samples_to_plot, num_total_sequences)
+                        print(f"[INFO] Validation stocks specified but not found in current dataset. Using default {num_plots} samples.")
+                else:
+                    num_plots = min(n_samples_to_plot, num_total_sequences)
+                    print(f"[INFO] Could not determine tickers from dataset. Using default {num_plots} samples.")
+            except Exception as e:
+                print(f"[WARN] Error determining stocks from dataset: {e}. Using default number of samples.")
+                num_plots = min(n_samples_to_plot, num_total_sequences)
+        else:
+            # Default behavior: use the provided n_samples_to_plot
+            num_plots = min(n_samples_to_plot, num_total_sequences)
+            
         if num_plots == 0:
             print("No samples to plot.")
             return None
@@ -600,6 +645,7 @@ class StockVisualizer:
         1. Try to select one sample from each unique stock
         2. If more samples needed, fill randomly from remaining sequences
         3. If fewer unique stocks than requested samples, use random sampling
+        4. When num_plots equals the number of unique tickers, prioritize even distribution
         
         Args:
             dataset: The dataset object containing sequence information
@@ -643,19 +689,50 @@ class StockVisualizer:
                 print("[DEBUG] No ticker information available, using random sampling")
                 return np.random.choice(num_total_sequences, num_plots, replace=False)
             
-            # Phase 1: Select one sample from each unique ticker (up to num_plots)
-            tickers_to_sample = unique_tickers[:num_plots]  # Limit to requested number
+            # Phase 1: Select samples from each unique ticker
+            # If num_plots >= number of unique tickers, select at least one from each ticker
+            if num_plots >= len(unique_tickers):
+                # Select one sample from each ticker first
+                for ticker in unique_tickers:
+                    ticker_indices = ticker_to_indices[ticker]
+                    selected_idx = np.random.choice(ticker_indices)
+                    selected_indices.append(selected_idx)
+                    print(f"[DEBUG] Selected sequence {selected_idx} for ticker {ticker}")
+                
+                # If we need more samples, distribute them evenly across tickers
+                remaining_plots = num_plots - len(unique_tickers)
+                if remaining_plots > 0:
+                    # Calculate how many additional samples per ticker
+                    additional_per_ticker = remaining_plots // len(unique_tickers)
+                    extra_samples = remaining_plots % len(unique_tickers)
+                    
+                    for i, ticker in enumerate(unique_tickers):
+                        ticker_indices = ticker_to_indices[ticker]
+                        # Remove already selected indices for this ticker
+                        available_indices = [idx for idx in ticker_indices if idx not in selected_indices]
+                        
+                        if available_indices:
+                            # Add extra sample to first few tickers if remainder exists
+                            samples_to_add = additional_per_ticker + (1 if i < extra_samples else 0)
+                            samples_to_add = min(samples_to_add, len(available_indices))
+                            
+                            if samples_to_add > 0:
+                                additional_selected = np.random.choice(available_indices, samples_to_add, replace=False)
+                                selected_indices.extend(additional_selected)
+                                print(f"[DEBUG] Added {samples_to_add} additional samples for ticker {ticker}")
+                        
+            else:
+                # num_plots < number of unique tickers, select from first num_plots tickers
+                tickers_to_sample = unique_tickers[:num_plots]
+                
+                for ticker in tickers_to_sample:
+                    ticker_indices = ticker_to_indices[ticker]
+                    selected_idx = np.random.choice(ticker_indices)
+                    selected_indices.append(selected_idx)
+                    print(f"[DEBUG] Selected sequence {selected_idx} for ticker {ticker}")
             
-            for ticker in tickers_to_sample:
-                # Randomly select one sequence from this ticker
-                ticker_indices = ticker_to_indices[ticker]
-                selected_idx = np.random.choice(ticker_indices)
-                selected_indices.append(selected_idx)
-                print(f"[DEBUG] Selected sequence {selected_idx} for ticker {ticker}")
-            
-            # Phase 2: If we need more samples, fill randomly from remaining sequences
+            # Phase 2: Fill any remaining slots with random samples if needed
             if len(selected_indices) < num_plots:
-                # Get all indices not yet selected
                 remaining_indices = [i for i in range(num_total_sequences) if i not in selected_indices]
                 
                 if len(remaining_indices) > 0:
