@@ -188,10 +188,21 @@ class StreamingStockDataset(Dataset):
                             time.sleep(0.5)  # Wait for epoch to complete
                     
                     with self._lock:
+                        # In safe mode or during active epochs, wait before memory management
+                        if self.streaming_config.safe_mode and self._epoch_in_progress:
+                            # Don't modify chunks during active epoch iteration
+                            print(f"⏸️ [Background] Waiting for epoch to complete before adding chunk {chunk_counter}")
+                            continue
+                        
                         # Memory management: remove oldest chunks if we exceed limit
+                        removed_count = 0
                         while (len(self._chunk_datasets) >= self.streaming_config.max_memory_chunks):
                             removed_chunk = self._chunk_datasets.pop(0)
                             self._current_total_size -= removed_chunk.size
+                            removed_count += 1
+                        
+                        if removed_count > 0:
+                            print(f"🗑️ [Background] Removed {removed_count} old chunks to make space")
                         
                         self._chunk_datasets.append(chunk_dataset)
                         self._processed_files.update(files)
@@ -254,6 +265,21 @@ class StreamingStockDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Get item by index, searching through chunk datasets"""
         with self._lock:
+            # Handle out-of-range access gracefully by wrapping around
+            # This prevents crashes when chunks are swapped during training
+            if len(self._chunk_datasets) == 0:
+                raise IndexError("No chunks available in dataset")
+            
+            # Calculate actual available size
+            actual_size = sum(len(chunk) for chunk in self._chunk_datasets)
+            if actual_size == 0:
+                raise IndexError("Dataset has no sequences available")
+            
+            # Wrap index if it's out of range (handles chunk swapping gracefully)
+            if idx >= actual_size:
+                print(f"⚠️ Index {idx} out of range (size: {actual_size}), wrapping to avoid crash")
+                idx = idx % actual_size
+            
             current_idx = 0
             for chunk in self._chunk_datasets:
                 if idx < current_idx + len(chunk):
@@ -261,7 +287,8 @@ class StreamingStockDataset(Dataset):
                     return chunk.dataset[local_idx]
                 current_idx += len(chunk)
             
-        raise IndexError(f"Index {idx} out of range for dataset of size {len(self)}")
+        # This should never happen with the modulo fix above, but keep as failsafe
+        raise IndexError(f"Index {idx} out of range for dataset of size {actual_size}")
     
     def get_processing_status(self) -> dict:
         """Get current processing status"""
@@ -358,6 +385,14 @@ class StreamingDataLoader:
             num_workers=self.num_workers,
             drop_last=use_drop_last
         )
+    
+    def refresh_dataloader(self):
+        """Refresh the DataLoader to handle dynamic dataset size changes"""
+        old_size = len(self.streaming_dataset)
+        self._create_dataloader()
+        new_size = len(self.streaming_dataset)
+        if new_size != old_size:
+            print(f"🔄 DataLoader refreshed: {old_size:,} → {new_size:,} sequences")
     
     def __iter__(self):
         """Iterate through the dataloader"""

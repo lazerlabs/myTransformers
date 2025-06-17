@@ -9,6 +9,9 @@ import subprocess
 import threading
 import time
 import webbrowser
+import glob
+import re
+from datetime import datetime
 from configs import StockPredictionConfig, get_config_defaults
 from exp_stock_forecasting import Exp_Stock_Forecasting
 from utils.loss import get_loss_function
@@ -196,7 +199,7 @@ def open_tensorboard_browser(port=6006, delay=3):
 @click.option('--streaming-chunk-size', type=int, default=_config_defaults['streaming_chunk_size'], show_default=True, help='Number of files per background chunk')
 @click.option('--streaming-max-memory-chunks', type=int, default=_config_defaults['streaming_max_memory_chunks'], show_default=True, help='Maximum chunks to keep in memory')
 @click.option('--streaming-enable-background/--no-streaming-enable-background', default=_config_defaults['streaming_enable_background'], help='Enable background processing for streaming')
-@click.option('--streaming-safe-mode/--no-streaming-safe-mode', default=_config_defaults['streaming_safe_mode'], help='Safe mode: only expand dataset between epochs')
+@click.option('--streaming-safe-mode/--no-streaming-safe-mode', default=True, help='Safe mode: only expand dataset between epochs (DEFAULT: enabled for stability)')
 
 # TensorBoard Parameters - CLI-only options with their own defaults
 @click.option('--auto-start-tensorboard/--no-auto-start-tensorboard', default=True, help='Automatically start TensorBoard server')
@@ -206,6 +209,8 @@ def open_tensorboard_browser(port=6006, delay=3):
 
 # Special Options - CLI-only options with their own defaults
 @click.option('--resume-checkpoint', type=str, help='Path to checkpoint to resume training from')
+@click.option('--auto-resume', is_flag=True, help='Automatically resume from latest checkpoint if available')
+@click.option('--run-name', type=str, help='Custom name prefix for this run (will be added to timestamp)')
 @click.option('--quick-test', is_flag=True, help='Run a quick test (1 epoch, 10 iterations, minimal data)')
 @click.option('--extract-embeddings-only', is_flag=True, help='Only extract and save embeddings from the first batch, then exit')
 @click.option('--seed', type=int, default=2024, show_default=True, help='Random seed')
@@ -243,7 +248,7 @@ def main(**kwargs):
     # Override config with provided CLI arguments (CLI now has config defaults, so this is clean)
     for key, value in kwargs.items():
         # Skip CLI-only arguments that don't have config counterparts
-        if key in ['auto_start_tensorboard', 'tensorboard_host', 'tensorboard_port', 'open_browser', 'resume_checkpoint', 'quick_test', 'extract_embeddings_only', 'seed']:
+        if key in ['auto_start_tensorboard', 'tensorboard_host', 'tensorboard_port', 'open_browser', 'resume_checkpoint', 'auto_resume', 'run_name', 'quick_test', 'extract_embeddings_only', 'seed']:
             continue
             
         # Convert kebab-case to snake_case
@@ -332,7 +337,53 @@ def main(**kwargs):
         config.output_attention,
         config.loss_type
     )
-    # Add model name to setting string for clarity in results
+    
+    # Create unique run directories for ALL outputs to avoid conflicts between multiple training runs
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_name_prefix = kwargs.get('run_name', '')
+    if run_name_prefix:
+        run_id = f"{run_name_prefix}_{timestamp}_{config.model}_sl{config.seq_len}_pl{config.pred_len}"
+    else:
+        run_id = f"{timestamp}_{config.model}_sl{config.seq_len}_pl{config.pred_len}"
+    
+    # Create unique subdirectories for each output type
+    config.logs_dir = os.path.join(config.logs_dir, run_id)
+    config.checkpoints_dir = os.path.join(config.checkpoints_dir, run_id)
+    config.figures_dir = os.path.join(config.figures_dir, run_id)
+    config.embeddings_dir = os.path.join(config.embeddings_dir, run_id)
+    
+    # Create all directories
+    for directory in [config.logs_dir, config.checkpoints_dir, config.figures_dir, config.embeddings_dir]:
+        os.makedirs(directory, exist_ok=True)
+    
+    print(f"🔖 Run ID: {run_id}")
+    print(f"📁 Unique directories created:")
+    print(f"   📊 Logs: {config.logs_dir}")
+    print(f"   💾 Checkpoints: {config.checkpoints_dir}")
+    print(f"   📈 Figures: {config.figures_dir}")
+    print(f"   🧠 Embeddings: {config.embeddings_dir}")
+
+    # Handle auto-resume functionality
+    resume_checkpoint_path = kwargs.get('resume_checkpoint')
+    if kwargs.get('auto_resume') and not resume_checkpoint_path:
+        # Look for the latest checkpoint in the checkpoints directory
+        checkpoints_pattern = os.path.join(config.checkpoints_dir, setting, 'checkpoint_iter_*.pth')
+        checkpoint_files = glob.glob(checkpoints_pattern)
+        if checkpoint_files:
+            # Sort by iteration number to get the latest
+            def extract_iter_num(filepath):
+                match = re.search(r'checkpoint_iter_(\d+)\.pth', filepath)
+                return int(match.group(1)) if match else 0
+            
+            checkpoint_files.sort(key=extract_iter_num)
+            resume_checkpoint_path = checkpoint_files[-1]
+            
+            match = re.search(r'checkpoint_iter_(\d+)\.pth', resume_checkpoint_path)
+            iteration_num = match.group(1) if match else "unknown"
+            print(f"🔄 Auto-resume enabled: Found latest checkpoint at iteration {iteration_num}")
+            print(f"📁 Resuming from: {resume_checkpoint_path}")
+        else:
+            print("🆕 Auto-resume enabled but no checkpoints found - starting fresh training")
 
     # Always extract and save embeddings from the first batch before training
     train_data, train_loader = exp._get_data(flag='train')
@@ -369,6 +420,9 @@ def main(**kwargs):
         # Auto-open browser if requested
         if kwargs['open_browser'] and tensorboard_process:
             open_tensorboard_browser(port=kwargs['tensorboard_port'], delay=3)
+        
+        if tensorboard_process:
+            print(f"📊 TensorBoard URL: http://localhost:{kwargs['tensorboard_port']}")
     else:
         print(f"TensorBoard auto-start disabled. To monitor training manually run:")
         print(f"tensorboard --logdir={config.logs_dir} --host={kwargs['tensorboard_host']} --port={kwargs['tensorboard_port']}")
@@ -382,7 +436,7 @@ def main(**kwargs):
         model = exp.train(
             setting,
             writer=writer,
-            resume_checkpoint=kwargs.get('resume_checkpoint')
+            resume_checkpoint=resume_checkpoint_path
         )
     except KeyboardInterrupt:
         print('\n>>>>>>>Early Stopping Due to KeyboardInterrupt<<<<<<<<<<<<<<<')
@@ -391,6 +445,7 @@ def main(**kwargs):
         if tensorboard_process and tensorboard_process.poll() is None:
             print("\n🔄 Keeping TensorBoard running for result viewing...")
             print(f"📊 View results at: http://localhost:{kwargs['tensorboard_port']}")
+            print(f"📁 Logs for this run: {config.logs_dir}")
             print("💡 To stop TensorBoard later, run: pkill -f tensorboard")
 
     writer.close()
