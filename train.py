@@ -195,11 +195,7 @@ def open_tensorboard_browser(port=6006, delay=3):
 # Streaming Parameters
 @click.option('--enable-streaming', type=click.Choice(['auto', 'on', 'off']), default='auto', show_default=True, help='Streaming mode: auto (detect based on file count), on (force enable), off (force disable)')
 @click.option('--streaming-threshold', type=int, default=_config_defaults['streaming_threshold'], show_default=True, help='File count threshold for auto-enabling streaming')
-@click.option('--streaming-initial-chunk-size', type=int, default=_config_defaults['streaming_initial_chunk_size'], show_default=True, help='Number of files in initial chunk')
-@click.option('--streaming-chunk-size', type=int, default=_config_defaults['streaming_chunk_size'], show_default=True, help='Number of files per background chunk')
-@click.option('--streaming-max-memory-chunks', type=int, default=_config_defaults['streaming_max_memory_chunks'], show_default=True, help='Maximum chunks to keep in memory')
-@click.option('--streaming-enable-background/--no-streaming-enable-background', default=_config_defaults['streaming_enable_background'], help='Enable background processing for streaming')
-@click.option('--streaming-safe-mode/--no-streaming-safe-mode', default=True, help='Safe mode: only expand dataset between epochs (DEFAULT: enabled for stability)')
+@click.option('--streaming-chunk-size', type=int, default=_config_defaults['streaming_chunk_size'], show_default=True, help='Number of files to process in each chunk during training')
 
 # TensorBoard Parameters - CLI-only options with their own defaults
 @click.option('--auto-start-tensorboard/--no-auto-start-tensorboard', default=True, help='Automatically start TensorBoard server')
@@ -321,10 +317,13 @@ def main(**kwargs):
     except Exception as e:
         # Re-raise other exceptions with their tracebacks
         raise
-    setting = '{}_{}_{}_ft{}_sl{}_pl{}_dm{}_nh{}_el{}_df{}_eb{}_{}_{}_{}'.format(
+    # Create proper experiment setting string (fix: remove filename dependency)
+    features_str = '_'.join(config.features) if isinstance(config.features, list) else str(config.features)
+    setting = '{}_data{}_{}_{}_ft{}_sl{}_pl{}_dm{}_nh{}_el{}_df{}_eb{}_{}_{}_{}'.format(
         config.model,
-        os.path.basename(config.train_files[0]) if config.train_files else "unknown",
-        config.features,
+        len(config.train_files),  # Use number of files instead of filename
+        config.mode,
+        features_str,
         config.enc_in,
         config.seq_len,
         config.pred_len,
@@ -385,28 +384,10 @@ def main(**kwargs):
         else:
             print("🆕 Auto-resume enabled but no checkpoints found - starting fresh training")
 
-    # Always extract and save embeddings from the first batch before training
-    train_data, train_loader = exp._get_data(flag='train')
-    batch_iterator = iter(train_loader)
-    try:
-        batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask = next(batch_iterator)
-    except StopIteration:
-        raise RuntimeError("Could not get first batch - dataloader is empty")
-    if batch_x.numel() == 0:
-        raise RuntimeError("Got empty batch")
-    batch_x = batch_x.float().to(exp.device)
-    batch_x_mark = batch_x_mark.float().to(exp.device)
-    with torch.no_grad():
-        if hasattr(exp.model, "get_embeddings"):
-            embeddings = exp.model.get_embeddings(batch_x[0:1], batch_x_mark[0:1])
-            os.makedirs(config.embeddings_dir, exist_ok=True)
-            save_embeddings(embeddings, os.path.join(config.embeddings_dir, 'stock_embeddings.json'))
-        else:
-            print("Model does not support get_embeddings method.")
-
+    # Note: Embedding extraction moved to the train() method to avoid duplicate dataset creation
     if kwargs['extract_embeddings_only']:
-        print("Exiting after embedding extraction as requested.")
-        return
+        print("Extract-embeddings-only mode enabled - will extract embeddings during training setup.")
+        print("Note: This requires at least one training iteration to generate embeddings.")
 
     # TensorBoard setup
     tensorboard_process = None

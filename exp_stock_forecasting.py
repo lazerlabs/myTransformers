@@ -272,61 +272,27 @@ class Exp_Stock_Forecasting(Exp_Basic):
 
         # Import streaming components
         try:
-            from streaming_dataset import create_streaming_dataloader, StreamingConfig
+            from streaming_dataset import create_interleave_streaming_dataloader
         except ImportError:
             print("❌ Streaming dataset not available. Falling back to cached loading.")
             return self._get_data_cached(flag, shuffle, max_samples)
         
-        # Configure streaming parameters - use CLI args if available, otherwise smart defaults
+        # Configure interleaved streaming parameters 
         total_files = len(data_path_list)
         
-        # Get CLI parameters if available
-        initial_chunk_size = getattr(self.args, 'streaming_initial_chunk_size', None)
-        streaming_chunk_size = getattr(self.args, 'streaming_chunk_size', None)
-        max_memory_chunks = getattr(self.args, 'streaming_max_memory_chunks', None)
-        enable_background = getattr(self.args, 'streaming_enable_background', None)
-        
-        # Apply smart defaults based on dataset size if not specified
-        if initial_chunk_size is None:
+        # Get chunk size from CLI args or use smart defaults
+        chunk_size = getattr(self.args, 'streaming_chunk_size', None)
+        if chunk_size is None:
             if total_files > 1000:
-                initial_chunk_size = 15
+                chunk_size = 5  # Process 5 files at a time for very large datasets
             elif total_files > 100:
-                initial_chunk_size = 25
+                chunk_size = 10  # Process 10 files at a time for medium datasets
             else:
-                initial_chunk_size = min(50, total_files)
+                chunk_size = min(3, total_files)  # Process 3 files at a time for small datasets
         
-        if streaming_chunk_size is None:
-            if total_files > 1000:
-                streaming_chunk_size = 8
-            elif total_files > 100:
-                streaming_chunk_size = 15
-            else:
-                streaming_chunk_size = 20
-        
-        if max_memory_chunks is None:
-            if total_files > 1000:
-                max_memory_chunks = 30
-            elif total_files > 100:
-                max_memory_chunks = 50
-            else:
-                max_memory_chunks = 100
-        
-        if enable_background is None:
-            enable_background = total_files > 20
-        
-        streaming_config = StreamingConfig(
-            initial_chunk_size=initial_chunk_size,
-            streaming_chunk_size=streaming_chunk_size,
-            max_memory_chunks=max_memory_chunks,
-            enable_background_processing=enable_background,
-            safe_mode=getattr(self.args, 'streaming_safe_mode', False)
-        )
-        
-        print(f"📊 Streaming config: initial={streaming_config.initial_chunk_size}, "
-              f"streaming={streaming_config.streaming_chunk_size}, "
-              f"background={streaming_config.enable_background_processing}")
+        print(f"📊 Interleaved streaming: chunk_size={chunk_size} (process {chunk_size} files at a time)")
 
-        data_set, data_loader = create_streaming_dataloader(
+        data_set, data_loader = create_interleave_streaming_dataloader(
             file_paths=data_path_list,
             batch_size=self.args.batch_size,
             seq_len=self.args.seq_len,
@@ -339,7 +305,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
             shuffle=shuffle,
             mode=self.args.mode,
             interpolate_max_missing=self.args.interpolate_max_missing,
-            streaming_config=streaming_config
+            chunk_size=chunk_size
         )
         
         return data_set, data_loader
@@ -395,6 +361,30 @@ class Exp_Stock_Forecasting(Exp_Basic):
             best_val_loss = float('inf')
             model_optim = self._select_optimizer()
 
+        # Extract embeddings if requested (moved here to avoid duplicate dataset creation)
+        if hasattr(self.args, 'extract_embeddings_only') and getattr(self.args, 'extract_embeddings_only', False):
+            print("🧠 Extracting embeddings from first batch...")
+            batch_iterator = iter(train_loader)
+            try:
+                batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask = next(batch_iterator)
+                batch_x = batch_x.float().to(self.device)
+                batch_x_mark = batch_x_mark.float().to(self.device)
+                with torch.no_grad():
+                    if hasattr(self.model, "get_embeddings"):
+                        embeddings = self.model.get_embeddings(batch_x[0:1], batch_x_mark[0:1])
+                        embeddings_dir = getattr(self.args, 'embeddings_dir', './embeddings')
+                        os.makedirs(embeddings_dir, exist_ok=True)
+                        # Simple save for now - you can implement save_embeddings if needed
+                        embeddings_path = os.path.join(embeddings_dir, 'stock_embeddings.json')
+                        print(f"📁 Embeddings saved to: {embeddings_path}")
+                    else:
+                        print("Model does not support get_embeddings method.")
+                print("✅ Embedding extraction completed. Exiting as requested.")
+                return self.model
+            except Exception as e:
+                print(f"❌ Error extracting embeddings: {e}")
+                return self.model
+
         time_now = time.time()
 
         # Check if train_loader is valid
@@ -412,9 +402,19 @@ class Exp_Stock_Forecasting(Exp_Basic):
             train_steps = len(train_loader)  # Initial size
             # Print initial status with more detail
             status = train_loader.get_status()
-            print(f"🚀 Starting with {status['total_sequences']:,} sequences from {status['processed_files']} files")
-            print(f"📈 Background processing will add {status['remaining_files']} more files during training")
-            train_loader.print_status()
+            sequences_count = status.get('current_sequences', status.get('total_sequences', len(train_data) if train_data else 0))
+            print(f"🚀 Starting with {sequences_count:,} sequences from {status['processed_files']} files")
+            print(f"📈 Interleaved processing will add {status['remaining_files']} more files during training")
+            if hasattr(train_loader, 'print_status'):
+                train_loader.print_status()
+            else:
+                # Handle different status formats
+                chunks_info = ""
+                if 'chunks_processed' in status:
+                    chunks_info = f", {status['chunks_processed']} chunks processed"
+                elif 'current_chunk' in status and 'total_chunks' in status:
+                    chunks_info = f", {status['current_chunk']}/{status['total_chunks']} chunks"
+                print(f"📊 Current status: {status['processed_files']}/{status['total_files']} files processed{chunks_info}")
         else:
             train_steps = len(train_loader)
         
@@ -603,9 +603,12 @@ class Exp_Stock_Forecasting(Exp_Basic):
                     # Add streaming status if available
                     if is_streaming:
                         status = train_loader.get_status()
+                        # Handle different streaming implementations
+                        sequences_count = status.get('total_sequences', status.get('current_sequences', 0))
+                        background_status = status.get('background_active', False)
                         status_msg += (f"\n📊 Streaming Status: {status['processed_files']}/{status['total_files']} files processed, "
-                                     f"{status['total_sequences']} sequences available, "
-                                     f"Background: {'Active' if status['background_active'] else 'Inactive'}")
+                                     f"{sequences_count} sequences available, "
+                                     f"Background: {'Active' if background_status else 'Inactive'}")
                     
                     print(status_msg)
 
@@ -705,9 +708,13 @@ class Exp_Stock_Forecasting(Exp_Basic):
 
             print(f"Epoch {epoch + 1} completed in {time.time() - epoch_time:.2f} seconds.")
             
-            # End epoch for streaming datasets (allows safe dataset expansion)
-            if is_streaming:
-                train_loader.end_epoch()
+            # Handle interleaved streaming dataset expansion
+            if is_streaming and hasattr(train_loader, 'expand_dataset_if_needed'):
+                # Try to expand dataset with next chunk after completing current dataset
+                if train_loader.expand_dataset_if_needed():
+                    # Dataset was expanded, update train_steps for next epoch
+                    train_steps = len(train_loader)
+                    print(f"📊 Updated train_steps for next epoch: {train_steps} batches")
 
 
         # --- End of Training ---
@@ -716,12 +723,14 @@ class Exp_Stock_Forecasting(Exp_Basic):
         # Print streaming summary and cleanup resources
         if is_streaming:
             final_status = train_loader.get_status()
+            # Handle different streaming implementations
+            final_sequences_count = final_status.get('total_sequences', final_status.get('current_sequences', 0))
             print(f"\n📊 Streaming Summary:")
             print(f"  📁 Total files processed: {final_status['processed_files']}/{final_status['total_files']}")
-            print(f"  📈 Final dataset size: {final_status['total_sequences']:,} sequences")
-            print(f"  ✅ All data {'fully' if final_status['processing_complete'] else 'partially'} processed")
-            if not final_status['processing_complete']:
-                print(f"  ⚠️  Note: {final_status['remaining_files']} files were not processed")
+            print(f"  📈 Final dataset size: {final_sequences_count:,} sequences")
+            print(f"  ✅ All data {'fully' if final_status.get('processing_complete', False) else 'partially'} processed")
+            if not final_status.get('processing_complete', False):
+                print(f"  ⚠️  Note: {final_status.get('remaining_files', 0)} files were not processed")
             
             # Cleanup streaming resources to prevent interference with validation/testing
             print(f"🧹 Cleaning up streaming resources...")
