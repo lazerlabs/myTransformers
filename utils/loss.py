@@ -19,11 +19,13 @@ class StockPredictionLoss:
     @staticmethod
     def mae_loss(y_pred, y_true, mask=None):
         """
-        Squared Mean Absolute Error: (MAE)^2
-        Gives more importance to small errors compared to MSE
+        Mean Absolute Error (MAE)
+        Linear relationship with error magnitude - smaller errors have proportionally smaller impact
+        Good for treating all errors proportionally without overstating small ones
         """
-        mae = torch.abs(y_pred - y_true).mean()
-        return mae
+        if mask is not None:
+            return torch.mean(mask * torch.abs(y_pred - y_true))
+        return F.l1_loss(y_pred, y_true)
 
     @staticmethod
     def squared_mae_loss(y_pred, y_true, mask=None):
@@ -33,6 +35,40 @@ class StockPredictionLoss:
         """
         mae = torch.abs(y_pred - y_true).mean()
         return mae ** 2
+
+    @staticmethod
+    def root_mean_squared_error(y_pred, y_true, mask=None):
+        """
+        Root Mean Squared Error (RMSE)
+        Still treats larger errors more severely than MAE, but less than MSE
+        Good middle ground between MSE and MAE
+        """
+        if mask is not None:
+            mse = torch.mean(mask * (y_pred - y_true) ** 2)
+        else:
+            mse = F.mse_loss(y_pred, y_true)
+        return torch.sqrt(mse)
+
+    @staticmethod
+    def log_cosh_loss(y_pred, y_true, mask=None):
+        """
+        Logarithm of hyperbolic cosine of prediction error
+        Approximately linear for small errors, quadratic for large errors
+        Less sensitive to outliers than MSE but more robust than MAE
+        """
+        diff = y_pred - y_true
+        if mask is not None:
+            return torch.mean(mask * torch.log(torch.cosh(diff)))
+        return torch.mean(torch.log(torch.cosh(diff)))
+
+    @staticmethod
+    def smooth_l1_loss(y_pred, y_true, beta=1.0, mask=None):
+        """
+        Smooth L1 Loss (also known as Huber Loss variant)
+        Linear for small errors (like MAE), quadratic for large errors
+        More robust to outliers than MSE while being differentiable everywhere
+        """
+        return F.smooth_l1_loss(y_pred, y_true, beta=beta)
 
     @staticmethod
     def huber_loss(y_pred, y_true, delta=1.0, mask=None):
@@ -132,7 +168,13 @@ def get_loss_function(loss_type="mse", **kwargs):
     """
     loss_functions = {
         "mse": StockPredictionLoss.mse_loss,
+        "mae": StockPredictionLoss.mae_loss,
         "squared_mae": StockPredictionLoss.squared_mae_loss,
+        "rmse": StockPredictionLoss.root_mean_squared_error,
+        "log_cosh": StockPredictionLoss.log_cosh_loss,
+        "smooth_l1": lambda y_pred, y_true, mask=None: StockPredictionLoss.smooth_l1_loss(
+            y_pred, y_true, beta=kwargs.get('beta', 1.0), mask=mask
+        ),
         "huber": lambda y_pred, y_true, mask=None: StockPredictionLoss.huber_loss(
             y_pred, y_true, delta=kwargs.get('delta', 1.0), mask=mask
         ),

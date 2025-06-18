@@ -19,6 +19,79 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from file_utils import find_csv_files
 from stock_dataset import StockDataset
+import pandas as pd
+import warnings
+from tqdm import tqdm
+
+
+def collate_variable_length_sequences(batch):
+    """
+    Custom collate function that handles variable-length sequences by padding
+    to the maximum length within the current batch.
+    
+    Args:
+        batch: List of tuples (batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask)
+    
+    Returns:
+        Padded and stacked tensors for the batch
+    """
+    if not batch:
+        raise ValueError("Empty batch received")
+    
+    # Separate the components
+    batch_x_list = [item[0] for item in batch]
+    batch_x_mark_list = [item[1] for item in batch]
+    batch_y_list = [item[2] for item in batch]
+    batch_y_mark_list = [item[3] for item in batch]
+    attention_mask_list = [item[4] for item in batch]
+    
+    # Find max sequence length in this batch
+    max_seq_len = max(x.shape[0] for x in batch_x_list)
+    
+    # Pad all sequences to max_seq_len
+    padded_batch_x = []
+    padded_batch_x_mark = []
+    padded_attention_mask = []
+    
+    for i in range(len(batch_x_list)):
+        x = batch_x_list[i]
+        x_mark = batch_x_mark_list[i]
+        mask = attention_mask_list[i]
+        
+        current_len = x.shape[0]
+        
+        if current_len < max_seq_len:
+            # Pad with zeros
+            pad_len = max_seq_len - current_len
+            
+            # Pad input features
+            x_pad = torch.zeros(pad_len, x.shape[1], dtype=x.dtype)
+            x_padded = torch.cat([x, x_pad], dim=0)
+            
+            # Pad time features  
+            x_mark_pad = torch.zeros(pad_len, x_mark.shape[1], dtype=x_mark.dtype)
+            x_mark_padded = torch.cat([x_mark, x_mark_pad], dim=0)
+            
+            # Pad attention mask (0 for padding)
+            mask_pad = torch.zeros(pad_len, dtype=mask.dtype)
+            mask_padded = torch.cat([mask, mask_pad], dim=0)
+        else:
+            x_padded = x
+            x_mark_padded = x_mark
+            mask_padded = mask
+            
+        padded_batch_x.append(x_padded)
+        padded_batch_x_mark.append(x_mark_padded)
+        padded_attention_mask.append(mask_padded)
+    
+    # Stack into batch tensors
+    batch_x = torch.stack(padded_batch_x, dim=0)
+    batch_x_mark = torch.stack(padded_batch_x_mark, dim=0)
+    batch_y = torch.stack(batch_y_list, dim=0)  # y should already be same length
+    batch_y_mark = torch.stack(batch_y_mark_list, dim=0)  # y_mark should already be same length
+    attention_mask = torch.stack(padded_attention_mask, dim=0)
+    
+    return batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask
 
 
 class InterleaveStreamingStockDataset(Dataset):
@@ -191,7 +264,8 @@ class InterleaveStreamingDataLoader:
             batch_size=self.batch_size,
             shuffle=self.shuffle,
             num_workers=self.num_workers,
-            drop_last=use_drop_last
+            drop_last=use_drop_last,
+            collate_fn=collate_variable_length_sequences
         )
     
     def __iter__(self):

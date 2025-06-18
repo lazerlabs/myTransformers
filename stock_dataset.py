@@ -90,8 +90,10 @@ class StockDataset(Dataset):
              print("Global mean/std provided. Scaling enabled.")
              # Ensure stats have correct shape
              expected_shape = (len(self.features),)
-             if self.mean_.shape != expected_shape or self.std_.shape != expected_shape:
-                 raise ValueError(f"global_mean/std shape mismatch. Expected {expected_shape}, got mean: {self.mean_.shape}, std: {self.std_.shape}")
+             if (self.mean_ is not None and self.mean_.shape != expected_shape) or (self.std_ is not None and self.std_.shape != expected_shape):
+                 mean_shape = self.mean_.shape if self.mean_ is not None else None
+                 std_shape = self.std_.shape if self.std_ is not None else None
+                 raise ValueError(f"global_mean/std shape mismatch. Expected {expected_shape}, got mean: {mean_shape}, std: {std_shape}")
 
         # Validation for mode
         if mode not in ['sliding_window', 'full_day']:
