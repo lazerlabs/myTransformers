@@ -79,7 +79,7 @@ class StockDataset(Dataset):
         self.scale = scale
         self.mean_ = global_mean # Store global stats
         self.std_ = global_std   # Store global stats
-        self.features = features or ['volume', 'close', 'transactions']
+        self.features = features or ['close', 'volume', 'transactions']
         self.mode = mode
         self.interpolate_max_missing = interpolate_max_missing
 

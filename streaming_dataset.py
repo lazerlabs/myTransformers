@@ -196,20 +196,43 @@ class InterleaveStreamingDataLoader:
     
     def __iter__(self):
         """
-        Iterate through current dataset only.
-        After this iterator is exhausted, the training loop can call expand_dataset_if_needed()
-        to check if more data should be processed.
+        Continuously expanding iterator that processes all chunks during training.
+        This ensures that we train on all available data by expanding the dataset
+        as we reach the end of each chunk.
         """
-        current_dataset_size = len(self.streaming_dataset)
-        print(f"🔄 Training on current dataset: {current_dataset_size:,} sequences ({len(self.dataloader)} batches)")
         
-        # Train on ALL batches from current dataset
-        batch_count = 0
-        for batch in self.dataloader:
-            yield batch
-            batch_count += 1
+        chunk_num = 1
         
-        print(f"✅ Completed training on {batch_count} batches from {current_dataset_size:,} sequences")
+        while True:
+            current_dataset_size = len(self.streaming_dataset)
+            current_batches = len(self.dataloader)
+            print(f"🔄 Training on chunk {chunk_num}: {current_dataset_size:,} sequences ({current_batches} batches)")
+            
+            # Train on ALL batches from current dataset
+            batch_count = 0
+            for batch in self.dataloader:
+                yield batch
+                batch_count += 1
+            
+            print(f"✅ Completed chunk {chunk_num}: {batch_count} batches from {current_dataset_size:,} sequences")
+            
+            # After completing current dataset, try to expand with next chunk
+            if self.streaming_dataset.can_process_more():
+                old_size = len(self.streaming_dataset)
+                if self.streaming_dataset._process_next_chunk():
+                    new_size = len(self.streaming_dataset)
+                    print(f"📂 Dataset expanded: {old_size:,} → {new_size:,} sequences")
+                    self._create_dataloader()  # Create new dataloader for expanded dataset
+                    chunk_num += 1
+                    print(f"🔄 Continuing with chunk {chunk_num}: ({len(self.dataloader)} batches)")
+                    continue  # Continue with expanded dataset
+                else:
+                    print("❌ Failed to process next chunk")
+                    break
+            else:
+                # No more files to process
+                print("✅ All files processed! Training complete.")
+                break
     
     def expand_dataset_if_needed(self) -> bool:
         """

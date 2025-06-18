@@ -5,6 +5,7 @@ import pandas as pd
 import os
 from configs import StockPredictionConfig
 import glob
+import torch
 
 class StockVisualizer:
     def __init__(self, save_dir='./figures/', feature_names=None):
@@ -449,11 +450,24 @@ class StockVisualizer:
                 true_denorm = true_denorm_full[:, feature_idx]
                 pred_denorm = pred_denorm_full[:, feature_idx]
             except Exception as e:
-                print(f"Warning: Failed to denormalize data for plot {plot_idx}: {e}. Using normalized data.")
+                print(f"Warning: Failed to process data for plot {plot_idx}: {e}. Using raw data.")
                 hist_denorm = hist_full_features[:, feature_idx]
                 true_denorm = true_full_features[:, feature_idx]
                 pred_denorm = pred_full_features[:, feature_idx]
 
+            # Filter out zero-padded values from historical data
+            # Find the last non-zero value in historical data
+            non_zero_mask = hist_denorm != 0.0
+            if np.any(non_zero_mask):
+                # Find the last non-zero index
+                last_non_zero_idx = np.where(non_zero_mask)[0][-1] + 1
+                hist_denorm_filtered = hist_denorm[:last_non_zero_idx]
+                print(f"DEBUG - Filtered historical data from {len(hist_denorm)} to {len(hist_denorm_filtered)} points")
+            else:
+                # If all zeros, keep a small segment
+                hist_denorm_filtered = hist_denorm[-60:]  # Show last 60 points
+                print(f"DEBUG - All historical data is zero, showing last 60 points")
+            
             # Get Ticker and Timestamp info with improved error handling
             try:
                 # Fix the get_sequence_info method to handle both modes
@@ -490,12 +504,10 @@ class StockVisualizer:
             x_hist = np.arange(seq_len)
             x_future = np.arange(seq_len, seq_len + pred_len)
             
-            # Plot historical data
-            ax.plot(x_hist, hist_denorm, 
-                   label=f'Historical Data ({seq_len} minutes)', 
-                   color='#1f77b4', 
-                   linewidth=2, 
-                   alpha=0.8)
+            # Plot filtered historical data (blue)
+            ax.plot(x_hist, hist_denorm_filtered, 
+                   label=f'Historical Data ({len(hist_denorm_filtered)} points)', 
+                   color='#1f77b4', linewidth=2, alpha=0.8)
             
             # Plot true future values
             ax.plot(x_future, true_denorm, 
@@ -575,7 +587,7 @@ class StockVisualizer:
             timestamp_str = start_timestamp.strftime("%Y-%m-%d %H:%M:%S") if timestamp_available else "N/A"
             
             # Historical data
-            for step_idx, val in enumerate(hist_denorm):
+            for step_idx, val in enumerate(hist_denorm_filtered):
                 plot_data_records.append({
                     'sequence_idx': int(seq_idx),
                     'ticker': str(ticker_name),
@@ -779,3 +791,262 @@ class StockVisualizer:
             # Fallback to simple labels
             ax.set_xticks(range(0, seq_len + pred_len, 10))
             ax.set_xticklabels([f'T{i}' for i in range(0, seq_len + pred_len, 10)])
+
+    def plot_simple_validation_predictions(self, model, dataset, device, feature_idx=0, n_samples_to_plot=3, config=None):
+        """
+        Simple validation visualization:
+        1. Take raw validation sequences (seq_len + pred_len consecutive points)
+        2. Split: historical (seq_len) + true future (pred_len) 
+        3. Feed historical to model to get predictions
+        4. Only denormalize predictions (raw data is already denormalized)
+        5. Chart: historical (blue) → true future (green) → predicted (red overlay)
+        
+        Args:
+            model: The trained model
+            dataset: Validation dataset 
+            device: Device to run model on
+            feature_idx: Index of feature to plot (0=close, 1=volume, 2=transactions)
+            n_samples_to_plot: Number of samples to plot (ignored - will plot all stocks)
+            config: Configuration object
+        """
+        print("\n--- Simple Validation Visualization ---")
+        
+        if len(dataset) == 0:
+            print("Warning: Empty dataset, cannot plot.")
+            return None
+            
+        # Ensure we have the correct feature names
+        if hasattr(dataset, 'features'):
+            self.feature_names = list(dataset.features)
+        
+        if feature_idx >= len(self.feature_names):
+            print(f"[WARN] Requested feature_idx={feature_idx} but dataset only has {len(self.feature_names)} features. Using index 0.")
+            feature_idx = 0
+            
+        print(f"Plotting feature: {self.feature_names[feature_idx]}")
+        
+        # Get all unique tickers and plot all sequences for each ticker
+        ticker_sequences = {}
+        for seq_idx in range(len(dataset)):
+            try:
+                if hasattr(dataset, 'get_sequence_info'):
+                    ticker_name, start_timestamp = dataset.get_sequence_info(seq_idx)
+                else:
+                    ticker_name = f"Ticker_{seq_idx}"
+                    start_timestamp = None
+            except:
+                ticker_name = f"Unknown_{seq_idx}"
+                start_timestamp = None
+                
+            if ticker_name not in ticker_sequences:
+                ticker_sequences[ticker_name] = []
+            ticker_sequences[ticker_name].append((seq_idx, start_timestamp))
+        
+        # Sort tickers and flatten all sequences
+        selected_sequences = []
+        for ticker_name in sorted(ticker_sequences.keys()):
+            sequences = ticker_sequences[ticker_name]
+            # Sort sequences by timestamp if available
+            sequences.sort(key=lambda x: x[1] if x[1] is not None else "")
+            for seq_idx, start_timestamp in sequences:
+                selected_sequences.append((seq_idx, ticker_name, start_timestamp))
+        
+        num_plots = len(selected_sequences)
+        print(f"Plotting {num_plots} sequences for {len(ticker_sequences)} tickers: {list(ticker_sequences.keys())}")
+        
+        # Create subplot grid
+        fig, axes = plt.subplots(num_plots, 1, figsize=(15, 4 * num_plots))
+        if num_plots == 1:
+            axes = [axes]
+            
+        model.eval()
+        plot_data_records = []
+        
+        with torch.no_grad():
+            for plot_idx, (seq_idx, ticker_name, start_timestamp) in enumerate(selected_sequences):
+                ax = axes[plot_idx]
+                
+                # Get raw sequence data (this contains seq_len + pred_len consecutive points)
+                batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask = dataset[seq_idx]
+                
+                # Prepare model input (add batch dimension)
+                batch_x = batch_x.unsqueeze(0).float().to(device)
+                batch_x_mark = batch_x_mark.unsqueeze(0).float().to(device)
+                
+                # Get model prediction
+                model_output = model(batch_x, batch_x_mark, None, None)
+                
+                # Extract the target feature from all data
+                # Debug: Check tensor shapes first
+                print(f"DEBUG - batch_x shape: {batch_x.shape}")
+                print(f"DEBUG - batch_y shape: {batch_y.shape}")
+                print(f"DEBUG - model_output shape: {model_output.shape}")
+                
+                # batch_x: [1, seq_len, features] - historical data (already denormalized)
+                # batch_y: [pred_len, features] or [1, pred_len, features] - true future data 
+                # model_output: [1, pred_len, features] - predictions (normalized, needs denormalization)
+                
+                historical_data = batch_x[0, :, feature_idx].cpu().numpy()  # [seq_len]
+                
+                # Handle different batch_y shapes
+                if batch_y.dim() == 3:
+                    true_future = batch_y[0, :, feature_idx].cpu().numpy()  # [pred_len]
+                elif batch_y.dim() == 2:
+                    true_future = batch_y[:, feature_idx].cpu().numpy()  # [pred_len]
+                else:
+                    print(f"Warning: Unexpected batch_y shape: {batch_y.shape}")
+                    true_future = batch_y.cpu().numpy().flatten()  # fallback
+                
+                # Filter out zero-padded values from historical data
+                # Find the last non-zero value in historical data
+                non_zero_mask = historical_data != 0.0
+                if np.any(non_zero_mask):
+                    # Find the last non-zero index
+                    last_non_zero_idx = np.where(non_zero_mask)[0][-1] + 1
+                    historical_data_filtered = historical_data[:last_non_zero_idx]
+                    print(f"DEBUG - Filtered historical data from {len(historical_data)} to {len(historical_data_filtered)} points")
+                else:
+                    # If all zeros, keep a small segment
+                    historical_data_filtered = historical_data[-60:]  # Show last 60 points
+                    print(f"DEBUG - All historical data is zero, showing last 60 points")
+                
+                # Only denormalize the model predictions
+                pred_normalized = model_output[0, :, feature_idx].cpu().numpy()  # [pred_len]
+                
+                # Denormalize predictions using dataset's method
+                # Create a dummy array with the right shape for denormalization
+                dummy_pred = np.zeros((1, len(pred_normalized), len(self.feature_names)))
+                dummy_pred[0, :, feature_idx] = pred_normalized
+                
+                try:
+                    denorm_pred_full = dataset.denormalize(dummy_pred)
+                    predicted_future = denorm_pred_full[0, :, feature_idx]
+                except Exception as e:
+                    print(f"Warning: Failed to denormalize predictions: {e}. Using raw predictions.")
+                    predicted_future = pred_normalized
+                
+                # Create x-axis - adjust for filtered historical data
+                seq_len_filtered = len(historical_data_filtered)
+                pred_len = len(true_future)
+                x_hist = np.arange(seq_len_filtered)
+                x_future = np.arange(seq_len_filtered, seq_len_filtered + pred_len)
+                
+                # Format timestamp for legend
+                if start_timestamp is not None:
+                    try:
+                        # Handle numpy.datetime64 objects
+                        if hasattr(start_timestamp, 'strftime'):
+                            timestamp_str = start_timestamp.strftime("%Y-%m-%d %H:%M")
+                        else:
+                            # Convert numpy.datetime64 to string and extract date/time
+                            timestamp_str = str(start_timestamp)[:16]  # Get YYYY-MM-DD HH:MM
+                    except:
+                        timestamp_str = str(start_timestamp)[:16]
+                else:
+                    timestamp_str = "Unknown time"
+                
+                # Plot filtered historical data (blue)
+                ax.plot(x_hist, historical_data_filtered, 
+                       label=f'Historical Data ({seq_len_filtered} points)', 
+                       color='#1f77b4', linewidth=2, alpha=0.8)
+                
+                # Plot true future (green)
+                ax.plot(x_future, true_future, 
+                       label='True Future', 
+                       color='#2ca02c', linewidth=2.5, 
+                       marker='o', markersize=5, alpha=0.9)
+                
+                # Plot predicted future (red)
+                ax.plot(x_future, predicted_future, 
+                       label='Predicted Future', 
+                       color='#d62728', linewidth=2.5, 
+                       marker='s', markersize=5, linestyle='--', alpha=0.9)
+                
+                # Add vertical separator - adjust position
+                ax.axvline(x=seq_len_filtered-0.5, color='gray', linestyle=':', alpha=0.7, linewidth=2)
+                ax.text(seq_len_filtered-0.5, ax.get_ylim()[1]*0.95, 'Prediction\nStarts Here', 
+                       rotation=0, ha='center', va='top', fontsize=10, alpha=0.7,
+                       bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8))
+                
+                # Calculate metrics
+                mse = np.mean((predicted_future - true_future) ** 2)
+                mae = np.mean(np.abs(predicted_future - true_future))
+                mape = np.mean(np.abs((predicted_future - true_future) / (true_future + 1e-8))) * 100
+                
+                # Set title and labels with timestamp information
+                title_text = (f'{ticker_name} | {self.feature_names[feature_idx].title()} Price | Start: {timestamp_str}\n'
+                             f'MSE: {mse:.4f} | MAE: {mae:.4f} | MAPE: {mape:.2f}%')
+                ax.set_title(title_text, fontsize=12, fontweight='bold')
+                ax.set_xlabel('Time Steps')
+                ax.set_ylabel(f'{self.feature_names[feature_idx].title()} Value')
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+                
+                # Collect data for CSV export
+                if start_timestamp is not None:
+                    try:
+                        # Handle numpy.datetime64 objects
+                        if hasattr(start_timestamp, 'strftime'):
+                            timestamp_str_csv = start_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                        else:
+                            # Convert numpy.datetime64 to string
+                            timestamp_str_csv = str(start_timestamp)
+                    except:
+                        timestamp_str_csv = str(start_timestamp)
+                else:
+                    timestamp_str_csv = "N/A"
+                
+                # Historical data
+                for step_idx, val in enumerate(historical_data_filtered):
+                    plot_data_records.append({
+                        'sequence_idx': int(seq_idx),
+                        'ticker': str(ticker_name),
+                        'start_timestamp': timestamp_str_csv,
+                        'data_type': 'historical',
+                        'time_step': int(step_idx),
+                        'value': float(val)
+                    })
+                
+                # True future values
+                for fut_idx, val in enumerate(true_future):
+                    plot_data_records.append({
+                        'sequence_idx': int(seq_idx),
+                        'ticker': str(ticker_name),
+                        'start_timestamp': timestamp_str_csv,
+                        'data_type': 'true',
+                        'time_step': int(seq_len_filtered + fut_idx),
+                        'value': float(val)
+                    })
+                
+                # Predicted future values
+                for fut_idx, val in enumerate(predicted_future):
+                    plot_data_records.append({
+                        'sequence_idx': int(seq_idx),
+                        'ticker': str(ticker_name),
+                        'start_timestamp': timestamp_str_csv,
+                        'data_type': 'predicted',
+                        'time_step': int(seq_len_filtered + fut_idx),
+                        'value': float(val)
+                    })
+        
+        plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+        fig.suptitle(f'All Stock Validation Predictions: {self.feature_names[feature_idx].title()} Price Forecasting', 
+                    fontsize=16, fontweight='bold')
+        
+        # Save plot
+        plot_filename = f'simple_predictions_{self.feature_names[feature_idx]}.png'
+        plot_path = os.path.join(self.save_dir, plot_filename)
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='white')
+        print(f"Saved plot: {plot_path}")
+        
+        # Save CSV data
+        if plot_data_records:
+            import pandas as pd
+            df = pd.DataFrame(plot_data_records)
+            csv_filename = f'simple_predictions_{self.feature_names[feature_idx]}.csv'
+            csv_path = os.path.join(self.save_dir, csv_filename)
+            df.to_csv(csv_path, index=False)
+            print(f"Saved CSV: {csv_path}")
+        
+        plt.show()
+        return fig

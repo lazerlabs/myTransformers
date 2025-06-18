@@ -484,14 +484,25 @@ class Exp_Stock_Forecasting(Exp_Basic):
             
             # For streaming dataloaders, we need to track dynamic total steps
             if is_streaming:
-                current_train_steps = len(train_loader)
-                pbar = tqdm(enumerate(train_loader), total=current_train_steps, desc=f"Epoch {epoch + 1}/{self.args.train_epochs}")
-                last_checked_steps = current_train_steps
+                # For streaming, we track actual batches processed (not total)
+                pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{self.args.train_epochs}")
+                last_checked_steps = len(train_loader)
                 steps_check_interval = 10  # Check for size changes every N iterations
+                # Use iter_count as our batch index for streaming
+                batch_idx = 0
             else:
                 pbar = tqdm(enumerate(train_loader), total=train_steps, desc=f"Epoch {epoch + 1}/{self.args.train_epochs}")
 
-            for i, batch_data in pbar:
+            for batch_data in pbar:
+                # Handle different iterator formats
+                if is_streaming:
+                    # For streaming, batch_data is the actual batch, use our own counter
+                    i = batch_idx
+                    batch_idx += 1
+                else:
+                    # For regular dataloader, unpack (index, batch_data)
+                    i, batch_data = batch_data
+
                 if batch_data is None:
                     warnings.warn(f"Skipping iteration {i} due to None batch data.")
                     continue
@@ -513,7 +524,6 @@ class Exp_Stock_Forecasting(Exp_Basic):
                         pbar.total = new_train_steps
                         pbar.refresh()
                         last_checked_steps = new_train_steps
-                        current_train_steps = new_train_steps
 
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
@@ -628,9 +638,10 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 # Enhanced progress bar description with streaming status
                 if is_streaming:
                     status = train_loader.get_status()
-                    current_total_steps = len(train_loader)
+                    # For streaming, show total iterations processed (more intuitive)
                     pbar.set_description(f"Epoch {epoch + 1}/{self.args.train_epochs} | "
-                                       f"Iter {i+1}/{current_total_steps} | "
+                                       f"Iter {global_iter} | "
+                                       f"Batch {i+1} | "
                                        f"Loss: {current_loss:>7.4f} | "
                                        f"Avg: {running_avg_loss:>7.4f} | "
                                        f"LR: {current_lr:.2e} | "
@@ -647,6 +658,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
                     break
 
             avg_epoch_train_loss = np.average(epoch_train_loss) if epoch_train_loss else 0.0
+            
             train_losses.append(avg_epoch_train_loss)
 
             # Validation  
@@ -707,14 +719,6 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 self.logger.logger.info(f"Epoch checkpoint saved: {epoch_checkpoint_path}")
 
             print(f"Epoch {epoch + 1} completed in {time.time() - epoch_time:.2f} seconds.")
-            
-            # Handle interleaved streaming dataset expansion
-            if is_streaming and hasattr(train_loader, 'expand_dataset_if_needed'):
-                # Try to expand dataset with next chunk after completing current dataset
-                if train_loader.expand_dataset_if_needed():
-                    # Dataset was expanded, update train_steps for next epoch
-                    train_steps = len(train_loader)
-                    print(f"📊 Updated train_steps for next epoch: {train_steps} batches")
 
 
         # --- End of Training ---
@@ -771,9 +775,12 @@ class Exp_Stock_Forecasting(Exp_Basic):
         # Log training completion
         self.logger.logger.info(f"=== Training Completed ===")
         self.logger.logger.info(f"Total epochs: {len(train_losses)}")
-        self.logger.logger.info(f"Final train loss: {train_losses[-1]:.6f}")
-        self.logger.logger.info(f"Final val loss: {val_losses[-1]:.6f}")
-        self.logger.logger.info(f"Final learning rate: {learning_rates[-1]:.6e}")
+        if train_losses:
+            self.logger.logger.info(f"Final train loss: {train_losses[-1]:.6f}")
+        if val_losses:
+            self.logger.logger.info(f"Final val loss: {val_losses[-1]:.6f}")
+        if learning_rates:
+            self.logger.logger.info(f"Final learning rate: {learning_rates[-1]:.6e}")
 
         return self.model
 
@@ -920,16 +927,14 @@ class Exp_Stock_Forecasting(Exp_Basic):
             print(f"Warning: Target '{self.args.target}' not in features list. Defaulting to first feature for plots.")
             target_feature_idx = 0
 
-        # Before calling the plot, ensure the test_data is the full dataset
-        visualizer.plot_comprehensive_predictions(
-            historical_data=input_data,
-            historical_marks=input_marks,
-            true_values=trues,
-            predictions=preds,
-            dataset=data,  # Pass the full test dataset
+        # Use the new simple validation visualization approach
+        visualizer.plot_simple_validation_predictions(
+            model=self.model,
+            dataset=data,  # Pass the validation dataset
+            device=self.device,
             feature_idx=target_feature_idx,
             n_samples_to_plot=3,
-            config=self.args  # Pass config to enable dynamic stock plotting
+            config=self.args
         )
 
         # Only perform saving/plotting/metric calculation for final test run
