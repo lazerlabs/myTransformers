@@ -488,26 +488,18 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{self.args.train_epochs}")
                 last_checked_steps = len(train_loader)
                 steps_check_interval = 10  # Check for size changes every N iterations
-                # Use separate counters for global vs chunk-local batch tracking
-                chunk_batch_idx = 0  # Reset for each chunk iteration
-                current_chunk_size = len(train_loader)
+                # Use simple batch counter for streaming
+                batch_idx = 0
             else:
                 pbar = tqdm(enumerate(train_loader), total=train_steps, desc=f"Epoch {epoch + 1}/{self.args.train_epochs}")
 
             for batch_data in pbar:
                 # Handle different iterator formats
                 if is_streaming:
-                    # For streaming, batch_data is the actual batch, use chunk-local counter
-                    i = chunk_batch_idx
-                    chunk_batch_idx += 1
-                    
-                    # Check if we've completed a full pass through the current dataloader
-                    # This indicates we're repeating the same data (possibly due to failed chunk expansion)
-                    if chunk_batch_idx > current_chunk_size:
-                        # Reset chunk batch counter for new iteration through same data
-                        chunk_batch_idx = 1
-                        i = 0
-                        print(f"\n🔄 Repeating chunk data (chunk_batch reset) - likely due to no new files available")
+                    # For streaming, batch_data is the actual batch, use simple counter
+                    i = batch_idx
+                    batch_idx += 1
+                    # No chunk repetition logic - let the streaming iterator handle everything
                 else:
                     # For regular dataloader, unpack (index, batch_data)
                     i, batch_data = batch_data
@@ -529,10 +521,11 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 if is_streaming and iter_count % steps_check_interval == 0:
                     new_train_steps = len(train_loader)
                     if new_train_steps != last_checked_steps:
-                        # Update progress bar total
-                        pbar.total = new_train_steps
+                        # Update progress bar total - but be careful about the counter going beyond initial size
+                        pbar.total = None  # Remove total for streaming (since it's dynamic)
                         pbar.refresh()
                         last_checked_steps = new_train_steps
+                        print(f"\n📈 Dataset expanded! New size: {new_train_steps} batches")
 
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float().to(self.device)
@@ -592,20 +585,16 @@ class Exp_Stock_Forecasting(Exp_Basic):
                     elapsed_time = time.time() - epoch_time
                     iters_per_sec = iter_count / elapsed_time if elapsed_time > 0 else 0
                     
-                    # For streaming datasets, use current dynamic size; for regular datasets, use original calculation
+                    # For streaming datasets, don't show confusing batch ratios; for regular datasets, use original calculation
                     if is_streaming:
-                        current_total_steps = len(train_loader)
-                        eta_seconds = (current_total_steps - i - 1) / iters_per_sec if iters_per_sec > 0 else 0
-                        eta_str = f"{int(eta_seconds // 60):02d}:{int(eta_seconds % 60):02d}"
-                        
+                        # Don't calculate ETA for streaming since dataset size is dynamic
                         status_msg = (f"\n[Epoch {epoch + 1}/{self.args.train_epochs}] "
                                     f"[Global Iter {global_iter}] "
-                                    f"[Chunk Batch {i+1}/{current_total_steps}] "
+                                    f"[Streaming Batch {i+1}] "
                                     f"Loss: {current_loss:.6f} "
                                     f"Running Avg: {running_avg_loss:.6f} "
                                     f"LR: {current_lr:.2e} "
-                                    f"Speed: {iters_per_sec:.1f} it/s "
-                                    f"ETA: {eta_str}")
+                                    f"Speed: {iters_per_sec:.1f} it/s")
                     else:
                         eta_seconds = (train_steps - i - 1) / iters_per_sec if iters_per_sec > 0 else 0
                         eta_str = f"{int(eta_seconds // 60):02d}:{int(eta_seconds % 60):02d}"
@@ -647,10 +636,10 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 # Enhanced progress bar description with streaming status
                 if is_streaming:
                     status = train_loader.get_status()
-                    # For streaming, show total iterations processed (more intuitive)
+                    # For streaming, don't show confusing batch ratios since dataset is expanding
                     pbar.set_description(f"Epoch {epoch + 1}/{self.args.train_epochs} | "
                                        f"Global Iter {global_iter} | "
-                                       f"Chunk Batch {i+1}/{len(train_loader)} | "
+                                       f"Batch {i+1} | "
                                        f"Loss: {current_loss:>7.4f} | "
                                        f"Avg: {running_avg_loss:>7.4f} | "
                                        f"LR: {current_lr:.2e} | "
