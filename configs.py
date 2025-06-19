@@ -142,6 +142,9 @@ class StockPredictionConfig:
     streaming_threshold: int = 50  # Number of files above which streaming is auto-enabled
     streaming_chunk_size: int = 10  # Number of files to process in each chunk during training
     
+    # File Order Parameters
+    randomize_train_files: bool = True  # Randomize training file order to prevent learning day-to-day connections
+    
     def __post_init__(self):
         # Update model parameters based on number of features
         self._update_model_dimensions()
@@ -218,12 +221,25 @@ class StockPredictionConfig:
             train_size = available_train_files
             print(f"Using all {train_size} available files for training")
         
-        # Split the files
-        self.test_files = csv_files[-self.test_size:]  # Last N files for testing
-        self.val_files = csv_files[-(self.test_size + self.val_size):-self.test_size]  # Files before test set for validation
-        self.train_files = csv_files[-(self.test_size + self.val_size + train_size):-(self.test_size + self.val_size)]  # Limited training files
+        # Split the files - KEEP TEST AND VALIDATION IN CHRONOLOGICAL ORDER for consistent evaluation
+        self.test_files = csv_files[-self.test_size:]  # Last N files for testing (chronological)
+        self.val_files = csv_files[-(self.test_size + self.val_size):-self.test_size]  # Files before test set for validation (chronological)
         
-        print(f"Data split - Train: {len(self.train_files)} files, Validation: {len(self.val_files)} files, Test: {len(self.test_files)} files")
+        # Select training files from the beginning part of the chronologically sorted list
+        available_train_files_list = csv_files[-(self.test_size + self.val_size + train_size):-(self.test_size + self.val_size)]
+        
+        # RANDOMIZE TRAINING FILES to prevent learning day-to-day connections (if enabled)
+        if self.randomize_train_files:
+            # Randomize the training files to prevent temporal dependencies between days
+            self.train_files = available_train_files_list.copy()  # Make a copy to avoid modifying the original
+            random.shuffle(self.train_files)  # Randomize order
+            print(f"🔀 Randomized training files to prevent learning day-to-day connections")
+            print(f"Data split - Train: {len(self.train_files)} files (RANDOMIZED), Validation: {len(self.val_files)} files, Test: {len(self.test_files)} files")
+        else:
+            # Keep training files in chronological order
+            self.train_files = available_train_files_list
+            print(f"📅 Keeping training files in chronological order")
+            print(f"Data split - Train: {len(self.train_files)} files (CHRONOLOGICAL), Validation: {len(self.val_files)} files, Test: {len(self.test_files)} files")
     
     def update_features(self, new_features: List[str]):
         """Update features and corresponding model dimensions. Call this after CLI overrides."""

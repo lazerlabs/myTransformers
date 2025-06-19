@@ -197,6 +197,9 @@ def open_tensorboard_browser(port=6006, delay=3):
 @click.option('--streaming-threshold', type=int, default=_config_defaults['streaming_threshold'], show_default=True, help='File count threshold for auto-enabling streaming')
 @click.option('--streaming-chunk-size', type=int, default=_config_defaults['streaming_chunk_size'], show_default=True, help='Number of files to process in each chunk during training')
 
+# File Order Parameters
+@click.option('--randomize-train-files/--no-randomize-train-files', default=_config_defaults['randomize_train_files'], help='Randomize training file order to prevent learning day-to-day connections')
+
 # TensorBoard Parameters - CLI-only options with their own defaults
 @click.option('--auto-start-tensorboard/--no-auto-start-tensorboard', default=True, help='Automatically start TensorBoard server')
 @click.option('--tensorboard-host', type=str, default='0.0.0.0', show_default=True, help='Host for TensorBoard server')
