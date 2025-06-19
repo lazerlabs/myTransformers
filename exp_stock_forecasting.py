@@ -488,17 +488,26 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{self.args.train_epochs}")
                 last_checked_steps = len(train_loader)
                 steps_check_interval = 10  # Check for size changes every N iterations
-                # Use iter_count as our batch index for streaming
-                batch_idx = 0
+                # Use separate counters for global vs chunk-local batch tracking
+                chunk_batch_idx = 0  # Reset for each chunk iteration
+                current_chunk_size = len(train_loader)
             else:
                 pbar = tqdm(enumerate(train_loader), total=train_steps, desc=f"Epoch {epoch + 1}/{self.args.train_epochs}")
 
             for batch_data in pbar:
                 # Handle different iterator formats
                 if is_streaming:
-                    # For streaming, batch_data is the actual batch, use our own counter
-                    i = batch_idx
-                    batch_idx += 1
+                    # For streaming, batch_data is the actual batch, use chunk-local counter
+                    i = chunk_batch_idx
+                    chunk_batch_idx += 1
+                    
+                    # Check if we've completed a full pass through the current dataloader
+                    # This indicates we're repeating the same data (possibly due to failed chunk expansion)
+                    if chunk_batch_idx > current_chunk_size:
+                        # Reset chunk batch counter for new iteration through same data
+                        chunk_batch_idx = 1
+                        i = 0
+                        print(f"\n🔄 Repeating chunk data (chunk_batch reset) - likely due to no new files available")
                 else:
                     # For regular dataloader, unpack (index, batch_data)
                     i, batch_data = batch_data
@@ -590,8 +599,8 @@ class Exp_Stock_Forecasting(Exp_Basic):
                         eta_str = f"{int(eta_seconds // 60):02d}:{int(eta_seconds % 60):02d}"
                         
                         status_msg = (f"\n[Epoch {epoch + 1}/{self.args.train_epochs}] "
-                                    f"[Iter {global_iter}] "
-                                    f"[Iter {i+1}/{current_total_steps}] "
+                                    f"[Global Iter {global_iter}] "
+                                    f"[Chunk Batch {i+1}/{current_total_steps}] "
                                     f"Loss: {current_loss:.6f} "
                                     f"Running Avg: {running_avg_loss:.6f} "
                                     f"LR: {current_lr:.2e} "
@@ -640,8 +649,8 @@ class Exp_Stock_Forecasting(Exp_Basic):
                     status = train_loader.get_status()
                     # For streaming, show total iterations processed (more intuitive)
                     pbar.set_description(f"Epoch {epoch + 1}/{self.args.train_epochs} | "
-                                       f"Iter {global_iter} | "
-                                       f"Batch {i+1} | "
+                                       f"Global Iter {global_iter} | "
+                                       f"Chunk Batch {i+1}/{len(train_loader)} | "
                                        f"Loss: {current_loss:>7.4f} | "
                                        f"Avg: {running_avg_loss:>7.4f} | "
                                        f"LR: {current_lr:.2e} | "
@@ -917,8 +926,9 @@ class Exp_Stock_Forecasting(Exp_Basic):
         else:
             self.logger.logger.info(f"Validation - MSE: {mse:.6f}, MAE: {mae:.6f}")
 
-        # Create visualizer instance
-        visualizer = StockVisualizer(save_dir=f'./figures/{setting}/', feature_names=self.args.features)
+        # Create visualizer instance using the pre-configured figures directory
+        # This ensures figures go to the same timestamped directory as logs and checkpoints
+        visualizer = StockVisualizer(save_dir=self.args.figures_dir, feature_names=self.args.features)
         
         # Find index of target feature for plotting
         try:
@@ -939,12 +949,12 @@ class Exp_Stock_Forecasting(Exp_Basic):
 
         # Only perform saving/plotting/metric calculation for final test run
         if test:
-            # Use config-driven results directory
+            # Use config-driven results directory (consistent with figures_dir approach)
             results_dir = getattr(self.args, "results_dir", None)
             if results_dir is None:
-                results_dir = os.path.join("results", setting)
-            else:
-                results_dir = os.path.join(results_dir, setting)
+                # Default: use same timestamped directory structure as other outputs
+                results_dir = os.path.join("results", os.path.basename(self.args.figures_dir))
+            # Note: If results_dir is provided, use it directly (like figures_dir)
 
             # Ensure results directory exists
             os.makedirs(results_dir, exist_ok=True)

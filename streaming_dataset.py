@@ -295,11 +295,19 @@ class InterleaveStreamingDataLoader:
                 old_size = len(self.streaming_dataset)
                 if self.streaming_dataset._process_next_chunk():
                     new_size = len(self.streaming_dataset)
-                    print(f"📂 Dataset expanded: {old_size:,} → {new_size:,} sequences")
-                    self._create_dataloader()  # Create new dataloader for expanded dataset
-                    chunk_num += 1
-                    print(f"🔄 Continuing with chunk {chunk_num}: ({len(self.dataloader)} batches)")
-                    continue  # Continue with expanded dataset
+                    if new_size > old_size:
+                        # Successfully added new data
+                        print(f"📂 Dataset expanded: {old_size:,} → {new_size:,} sequences")
+                        self._create_dataloader()  # Create new dataloader for expanded dataset
+                        chunk_num += 1
+                        print(f"🔄 Continuing with chunk {chunk_num}: ({len(self.dataloader)} batches)")
+                        continue  # Continue with expanded dataset
+                    else:
+                        # No new data was added (e.g., files unavailable, empty files)
+                        print(f"⚠️  No new sequences added (files may be unavailable). Repeating current data...")
+                        print(f"🔄 Continuing training on same dataset: {old_size:,} sequences ({len(self.dataloader)} batches)")
+                        chunk_num += 1  # Still increment chunk number for tracking
+                        continue  # Continue with same dataset
                 else:
                     print("❌ Failed to process next chunk")
                     break

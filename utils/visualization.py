@@ -153,7 +153,7 @@ class StockVisualizer:
         
         # Color by epoch for better visualization
         unique_epochs = sorted(set(epochs))
-        colors = plt.cm.viridis(np.linspace(0, 1, len(unique_epochs)))
+        colors = plt.cm.get_cmap('viridis')(np.linspace(0, 1, len(unique_epochs)))
         epoch_color_map = {epoch: color for epoch, color in zip(unique_epochs, colors)}
         
         # Plot points colored by epoch
@@ -488,9 +488,13 @@ class StockVisualizer:
                 start_time_str = start_timestamp.strftime('%Y-%m-%d %H:%M')
                 
                 # Create a more informative reference
-                end_timestamp = start_timestamp + pd.Timedelta(minutes=seq_len-1)
-                end_time_str = end_timestamp.strftime('%H:%M')
-                time_reference = f"{start_time_str} to {end_time_str}"
+                try:
+                    end_timestamp = start_timestamp + pd.Timedelta(minutes=seq_len-1)
+                    end_time_str = end_timestamp.strftime('%H:%M')
+                    time_reference = f"{start_time_str} to {end_time_str}"
+                except:
+                    # Handle cases where timestamp operations fail
+                    time_reference = start_time_str
                 
                 timestamp_available = True
             except Exception as e:
@@ -617,7 +621,7 @@ class StockVisualizer:
                     'value': float(val)
                 })
 
-        plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+        plt.tight_layout(rect=(0, 0.03, 1, 0.97))
         fig.suptitle(f'Stock Prediction Analysis: {self.feature_names[feature_idx].title()} Price Forecasting', 
                     fontsize=16, fontweight='bold')
         
@@ -825,7 +829,11 @@ class StockVisualizer:
             
         print(f"Plotting feature: {self.feature_names[feature_idx]}")
         
-        # Get all unique tickers and plot all sequences for each ticker
+        # Check dataset mode to determine sequence selection strategy
+        dataset_mode = getattr(dataset, 'mode', 'sliding_window')
+        print(f"Dataset mode: {dataset_mode}")
+        
+        # Get all unique tickers and their sequences
         ticker_sequences = {}
         for seq_idx in range(len(dataset)):
             try:
@@ -842,14 +850,27 @@ class StockVisualizer:
                 ticker_sequences[ticker_name] = []
             ticker_sequences[ticker_name].append((seq_idx, start_timestamp))
         
-        # Sort tickers and flatten all sequences
+        # Select sequences based on mode
         selected_sequences = []
-        for ticker_name in sorted(ticker_sequences.keys()):
-            sequences = ticker_sequences[ticker_name]
-            # Sort sequences by timestamp if available
-            sequences.sort(key=lambda x: x[1] if x[1] is not None else "")
-            for seq_idx, start_timestamp in sequences:
-                selected_sequences.append((seq_idx, ticker_name, start_timestamp))
+        if dataset_mode == 'sliding_window':
+            # For sliding window mode: randomly select ONE sequence per ticker to avoid huge plots
+            import random
+            print(f"Sliding window mode: Randomly selecting 1 sequence per ticker to avoid visualization overload")
+            for ticker_name in sorted(ticker_sequences.keys()):
+                sequences = ticker_sequences[ticker_name]
+                # Randomly select one sequence for this ticker
+                selected_seq_idx, selected_timestamp = random.choice(sequences)
+                selected_sequences.append((selected_seq_idx, ticker_name, selected_timestamp))
+                print(f"  {ticker_name}: Selected sequence {selected_seq_idx} from {len(sequences)} available sequences")
+        else:
+            # For full_day mode: use all sequences (typically one per ticker anyway)
+            print(f"Full day mode: Using all available sequences")
+            for ticker_name in sorted(ticker_sequences.keys()):
+                sequences = ticker_sequences[ticker_name]
+                # Sort sequences by timestamp if available
+                sequences.sort(key=lambda x: x[1] if x[1] is not None else "")
+                for seq_idx, start_timestamp in sequences:
+                    selected_sequences.append((seq_idx, ticker_name, start_timestamp))
         
         num_plots = len(selected_sequences)
         print(f"Plotting {num_plots} sequences for {len(ticker_sequences)} tickers: {list(ticker_sequences.keys())}")
@@ -976,6 +997,11 @@ class StockVisualizer:
                 # Set title and labels with timestamp information
                 title_text = (f'{ticker_name} | {self.feature_names[feature_idx].title()} Price | Start: {timestamp_str}\n'
                              f'MSE: {mse:.4f} | MAE: {mae:.4f} | MAPE: {mape:.2f}%')
+                # Add mode-specific information to title
+                if dataset_mode == 'sliding_window':
+                    title_text += f' | Mode: Sliding Window (Seq #{seq_idx})'
+                else:
+                    title_text += f' | Mode: Full Day'
                 ax.set_title(title_text, fontsize=12, fontweight='bold')
                 ax.set_xlabel('Time Steps')
                 ax.set_ylabel(f'{self.feature_names[feature_idx].title()} Value')
@@ -1030,11 +1056,12 @@ class StockVisualizer:
                     })
         
         plt.tight_layout(rect=[0, 0.03, 1, 0.97])
-        fig.suptitle(f'All Stock Validation Predictions: {self.feature_names[feature_idx].title()} Price Forecasting', 
+        mode_text = f" ({dataset_mode.replace('_', ' ').title()} Mode)"
+        fig.suptitle(f'Stock Validation Predictions: {self.feature_names[feature_idx].title()} Price Forecasting{mode_text}', 
                     fontsize=16, fontweight='bold')
         
         # Save plot
-        plot_filename = f'simple_predictions_{self.feature_names[feature_idx]}.png'
+        plot_filename = f'simple_predictions_{self.feature_names[feature_idx]}_{dataset_mode}.png'
         plot_path = os.path.join(self.save_dir, plot_filename)
         plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved plot: {plot_path}")
@@ -1043,7 +1070,7 @@ class StockVisualizer:
         if plot_data_records:
             import pandas as pd
             df = pd.DataFrame(plot_data_records)
-            csv_filename = f'simple_predictions_{self.feature_names[feature_idx]}.csv'
+            csv_filename = f'simple_predictions_{self.feature_names[feature_idx]}_{dataset_mode}.csv'
             csv_path = os.path.join(self.save_dir, csv_filename)
             df.to_csv(csv_path, index=False)
             print(f"Saved CSV: {csv_path}")
