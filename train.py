@@ -340,52 +340,106 @@ def main(**kwargs):
         config.loss_type
     )
     
-    # Create unique run directories for ALL outputs to avoid conflicts between multiple training runs
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_name_prefix = kwargs.get('run_name', '')
-    if run_name_prefix:
-        run_id = f"{run_name_prefix}_{timestamp}_{config.model}_sl{config.seq_len}_pl{config.pred_len}"
+    # Handle resume checkpoint logic BEFORE creating new directories
+    resume_checkpoint_path = kwargs.get('resume_checkpoint')
+    
+    # Determine if we should resume and extract run_id from checkpoint path
+    resume_run_id = None
+    if resume_checkpoint_path:
+        # Extract run_id from the checkpoint path
+        # Expected format: ./checkpoints/RUN_ID/setting/checkpoint_iter_*.pth
+        checkpoint_parts = os.path.normpath(resume_checkpoint_path).split(os.sep)
+        try:
+            # Find the checkpoints directory in the path
+            checkpoints_idx = None
+            for i, part in enumerate(checkpoint_parts):
+                if part == 'checkpoints':
+                    checkpoints_idx = i
+                    break
+            
+            if checkpoints_idx is not None and checkpoints_idx + 1 < len(checkpoint_parts):
+                resume_run_id = checkpoint_parts[checkpoints_idx + 1]
+                print(f"🔄 Resuming from checkpoint: {resume_checkpoint_path}")
+                print(f"📁 Extracted run ID: {resume_run_id}")
+            else:
+                print(f"⚠️  Warning: Could not extract run ID from checkpoint path: {resume_checkpoint_path}")
+                print("⚠️  Will create new directories and checkpoint path may become invalid")
+        except Exception as e:
+            print(f"⚠️  Warning: Error parsing checkpoint path: {e}")
+            print("⚠️  Will create new directories and checkpoint path may become invalid")
+    elif kwargs.get('auto_resume'):
+        # Look for existing checkpoints in base directory structure
+        base_checkpoints_dir = config.checkpoints_dir
+        # Look for any existing run directories
+        if os.path.exists(base_checkpoints_dir):
+            existing_runs = [d for d in os.listdir(base_checkpoints_dir) 
+                           if os.path.isdir(os.path.join(base_checkpoints_dir, d))]
+            
+            # Find the most recent run with compatible settings
+            latest_checkpoint = None
+            latest_iteration = -1
+            latest_run_id = None
+            
+            for run_id in existing_runs:
+                run_checkpoint_dir = os.path.join(base_checkpoints_dir, run_id, setting)
+                if os.path.exists(run_checkpoint_dir):
+                    checkpoint_pattern = os.path.join(run_checkpoint_dir, 'checkpoint_iter_*.pth')
+                    checkpoint_files = glob.glob(checkpoint_pattern)
+                    
+                    for checkpoint_file in checkpoint_files:
+                        match = re.search(r'checkpoint_iter_(\d+)\.pth', checkpoint_file)
+                        if match:
+                            iteration = int(match.group(1))
+                            if iteration > latest_iteration:
+                                latest_iteration = iteration
+                                latest_checkpoint = checkpoint_file
+                                latest_run_id = run_id
+            
+            if latest_checkpoint:
+                resume_checkpoint_path = latest_checkpoint
+                resume_run_id = latest_run_id
+                print(f"🔄 Auto-resume enabled: Found latest checkpoint at iteration {latest_iteration}")
+                print(f"📁 Resuming from: {resume_checkpoint_path}")
+                print(f"📁 Resume run ID: {resume_run_id}")
+            else:
+                print("🆕 Auto-resume enabled but no compatible checkpoints found - starting fresh training")
+    
+    # Create or reuse run directories
+    if resume_run_id:
+        # Reuse existing run directories
+        run_id = resume_run_id
+        config.logs_dir = os.path.join(config.logs_dir, run_id)
+        config.checkpoints_dir = os.path.join(config.checkpoints_dir, run_id)
+        config.figures_dir = os.path.join(config.figures_dir, run_id)
+        config.embeddings_dir = os.path.join(config.embeddings_dir, run_id)
+        
+        print(f"🔖 Resuming Run ID: {run_id}")
+        print(f"📁 Using existing directories:")
     else:
-        run_id = f"{timestamp}_{config.model}_sl{config.seq_len}_pl{config.pred_len}"
+        # Create new unique run directories
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_name_prefix = kwargs.get('run_name', '')
+        if run_name_prefix:
+            run_id = f"{run_name_prefix}_{timestamp}_{config.model}_sl{config.seq_len}_pl{config.pred_len}"
+        else:
+            run_id = f"{timestamp}_{config.model}_sl{config.seq_len}_pl{config.pred_len}"
+        
+        config.logs_dir = os.path.join(config.logs_dir, run_id)
+        config.checkpoints_dir = os.path.join(config.checkpoints_dir, run_id)
+        config.figures_dir = os.path.join(config.figures_dir, run_id)
+        config.embeddings_dir = os.path.join(config.embeddings_dir, run_id)
+        
+        print(f"🔖 New Run ID: {run_id}")
+        print(f"📁 Creating new directories:")
     
-    # Create unique subdirectories for each output type
-    config.logs_dir = os.path.join(config.logs_dir, run_id)
-    config.checkpoints_dir = os.path.join(config.checkpoints_dir, run_id)
-    config.figures_dir = os.path.join(config.figures_dir, run_id)
-    config.embeddings_dir = os.path.join(config.embeddings_dir, run_id)
-    
-    # Create all directories
+    # Create all directories (existing ones won't be affected)
     for directory in [config.logs_dir, config.checkpoints_dir, config.figures_dir, config.embeddings_dir]:
         os.makedirs(directory, exist_ok=True)
     
-    print(f"🔖 Run ID: {run_id}")
-    print(f"📁 Unique directories created:")
     print(f"   📊 Logs: {config.logs_dir}")
     print(f"   💾 Checkpoints: {config.checkpoints_dir}")
     print(f"   📈 Figures: {config.figures_dir}")
     print(f"   🧠 Embeddings: {config.embeddings_dir}")
-
-    # Handle auto-resume functionality
-    resume_checkpoint_path = kwargs.get('resume_checkpoint')
-    if kwargs.get('auto_resume') and not resume_checkpoint_path:
-        # Look for the latest checkpoint in the checkpoints directory
-        checkpoints_pattern = os.path.join(config.checkpoints_dir, setting, 'checkpoint_iter_*.pth')
-        checkpoint_files = glob.glob(checkpoints_pattern)
-        if checkpoint_files:
-            # Sort by iteration number to get the latest
-            def extract_iter_num(filepath):
-                match = re.search(r'checkpoint_iter_(\d+)\.pth', filepath)
-                return int(match.group(1)) if match else 0
-            
-            checkpoint_files.sort(key=extract_iter_num)
-            resume_checkpoint_path = checkpoint_files[-1]
-            
-            match = re.search(r'checkpoint_iter_(\d+)\.pth', resume_checkpoint_path)
-            iteration_num = match.group(1) if match else "unknown"
-            print(f"🔄 Auto-resume enabled: Found latest checkpoint at iteration {iteration_num}")
-            print(f"📁 Resuming from: {resume_checkpoint_path}")
-        else:
-            print("🆕 Auto-resume enabled but no checkpoints found - starting fresh training")
 
     # Note: Embedding extraction moved to the train() method to avoid duplicate dataset creation
     if kwargs['extract_embeddings_only']:

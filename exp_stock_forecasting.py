@@ -40,6 +40,10 @@ class Exp_Stock_Forecasting(Exp_Basic):
         # Initialize logger
         self.logger = Logger(name=args.model, log_dir='./logs')
         
+        # Initialize visualizer
+        from utils.visualization import StockVisualizer
+        self.visualizer = StockVisualizer(save_dir=args.figures_dir, feature_names=args.features)
+        
         # Global stats for normalization
         self.global_mean = None
         self.global_std = None
@@ -341,48 +345,75 @@ class Exp_Stock_Forecasting(Exp_Basic):
         path = os.path.join(self.args.checkpoints_dir, setting)
         if resume_checkpoint is not None and os.path.exists(resume_checkpoint):
             print(f"Resuming from checkpoint: {resume_checkpoint}")
-            checkpoint = torch.load(resume_checkpoint, map_location=self.device)
-            self.model.load_state_dict(checkpoint['model_state_dict'])
-            model_optim = self._select_optimizer()
-            model_optim.load_state_dict(checkpoint['optimizer_state_dict'])
-            start_epoch = checkpoint.get('epoch', 0)
-            global_iter = checkpoint.get('global_iter', 0)
-            best_val_loss = checkpoint.get('best_val_loss', float('inf'))
-            print(f"Resumed at epoch {start_epoch}, global_iter {global_iter}, best_val_loss {best_val_loss}")
+            try:
+                checkpoint = torch.load(resume_checkpoint, map_location=self.device)
+                
+                # Handle different checkpoint formats
+                if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                    # Training checkpoint with metadata
+                    self.model.load_state_dict(checkpoint['model_state_dict'])
+                    model_optim = self._select_optimizer()
+                    model_optim.load_state_dict(checkpoint['optimizer_state_dict'])
+                    start_epoch = checkpoint.get('epoch', 0)
+                    global_iter = checkpoint.get('global_iter', 0)
+                    best_val_loss = checkpoint.get('best_val_loss', float('inf'))
+                    print(f"Resumed from training checkpoint at epoch {start_epoch}, global_iter {global_iter}, best_val_loss {best_val_loss}")
+                else:
+                    # Early stopping checkpoint (model state dict only)
+                    self.model.load_state_dict(checkpoint)
+                    start_epoch = 0
+                    global_iter = 0
+                    best_val_loss = float('inf')
+                    model_optim = self._select_optimizer()
+                    print(f"Resumed from early stopping checkpoint, starting fresh optimizer state")
+                    
+            except Exception as e:
+                print(f"Error loading resume checkpoint {resume_checkpoint}: {e}")
+                print("Starting fresh training...")
+                start_epoch = 0
+                global_iter = 0
+                best_val_loss = float('inf')
+                model_optim = self._select_optimizer()
         else:
             # Clean up old checkpoints if path exists
             if os.path.exists(path):
                 import shutil
                 print(f"Removing existing checkpoint directory: {path}")
                 shutil.rmtree(path)
-            os.makedirs(path)
             start_epoch = 0
             global_iter = 0
             best_val_loss = float('inf')
             model_optim = self._select_optimizer()
 
+        # Ensure the checkpoint directory exists (for both resume and fresh training)
+        os.makedirs(path, exist_ok=True)
+
         # Extract embeddings if requested (moved here to avoid duplicate dataset creation)
         if hasattr(self.args, 'extract_embeddings_only') and getattr(self.args, 'extract_embeddings_only', False):
             print("🧠 Extracting embeddings from first batch...")
-            batch_iterator = iter(train_loader)
-            try:
-                batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask = next(batch_iterator)
-                batch_x = batch_x.float().to(self.device)
-                batch_x_mark = batch_x_mark.float().to(self.device)
-                with torch.no_grad():
-                    if hasattr(self.model, "get_embeddings"):
-                        embeddings = self.model.get_embeddings(batch_x[0:1], batch_x_mark[0:1])
-                        embeddings_dir = getattr(self.args, 'embeddings_dir', './embeddings')
-                        os.makedirs(embeddings_dir, exist_ok=True)
-                        # Simple save for now - you can implement save_embeddings if needed
-                        embeddings_path = os.path.join(embeddings_dir, 'stock_embeddings.json')
-                        print(f"📁 Embeddings saved to: {embeddings_path}")
-                    else:
-                        print("Model does not support get_embeddings method.")
-                print("✅ Embedding extraction completed. Exiting as requested.")
-                return self.model
-            except Exception as e:
-                print(f"❌ Error extracting embeddings: {e}")
+            if train_loader is not None:
+                try:
+                    batch_iterator = iter(train_loader)  # type: ignore
+                    batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask = next(batch_iterator)
+                    batch_x = batch_x.float().to(self.device)
+                    batch_x_mark = batch_x_mark.float().to(self.device)
+                    with torch.no_grad():
+                        if hasattr(self.model, "get_embeddings"):
+                            embeddings = self.model.get_embeddings(batch_x[0:1], batch_x_mark[0:1])
+                            embeddings_dir = getattr(self.args, 'embeddings_dir', './embeddings')
+                            os.makedirs(embeddings_dir, exist_ok=True)
+                            # Simple save for now - you can implement save_embeddings if needed
+                            embeddings_path = os.path.join(embeddings_dir, 'stock_embeddings.json')
+                            print(f"📁 Embeddings saved to: {embeddings_path}")
+                        else:
+                            print("Model does not support get_embeddings method.")
+                    print("✅ Embedding extraction completed. Exiting as requested.")
+                    return self.model
+                except Exception as e:
+                    print(f"❌ Error extracting embeddings: {e}")
+                    return self.model
+            else:
+                print("❌ No training data available for embedding extraction")
                 return self.model
 
         time_now = time.time()
@@ -396,17 +427,17 @@ class Exp_Stock_Forecasting(Exp_Basic):
              return None # Or raise an exception
 
         # Handle streaming vs. regular dataloaders
-        is_streaming = hasattr(train_loader, 'get_status')
+        is_streaming = hasattr(train_loader, 'get_status') and callable(getattr(train_loader, 'get_status', None))
         if is_streaming:
             print("🌊 Detected streaming dataloader - will monitor progress during training")
             train_steps = len(train_loader)  # Initial size
             # Print initial status with more detail
-            status = train_loader.get_status()
+            status = train_loader.get_status()  # type: ignore
             sequences_count = status.get('current_sequences', status.get('total_sequences', len(train_data) if train_data else 0))
             print(f"🚀 Starting with {sequences_count:,} sequences from {status['processed_files']} files")
             print(f"📈 Interleaved processing will add {status['remaining_files']} more files during training")
-            if hasattr(train_loader, 'print_status'):
-                train_loader.print_status()
+            if hasattr(train_loader, 'print_status') and callable(getattr(train_loader, 'print_status', None)):
+                train_loader.print_status()  # type: ignore
             else:
                 # Handle different status formats
                 chunks_info = ""
@@ -610,7 +641,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
                     
                     # Add streaming status if available
                     if is_streaming:
-                        status = train_loader.get_status()
+                        status = train_loader.get_status()  # type: ignore
                         # Handle different streaming implementations
                         sequences_count = status.get('total_sequences', status.get('current_sequences', 0))
                         background_status = status.get('background_active', False)
@@ -635,7 +666,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
 
                 # Enhanced progress bar description with streaming status
                 if is_streaming:
-                    status = train_loader.get_status()
+                    status = train_loader.get_status()  # type: ignore
                     # For streaming, don't show confusing batch ratios since dataset is expanding
                     pbar.set_description(f"Epoch {epoch + 1}/{self.args.train_epochs} | "
                                        f"Global Iter {global_iter} | "
@@ -678,9 +709,9 @@ class Exp_Stock_Forecasting(Exp_Basic):
             current_lr = model_optim.param_groups[0]['lr']
             learning_rates.append(current_lr)
             if self.args.lr_scheduler == 'cosine':
-                scheduler.step()
+                scheduler.step()  # CosineAnnealingLR doesn't need metrics
             else:
-                scheduler.step(val_loss)
+                scheduler.step(val_loss)  # ReduceLROnPlateau needs the validation loss
 
             # Log epoch completion
             self.logger.log_training(epoch + 1, avg_epoch_train_loss, val_loss, test_mse if test_mse is not None and not isinstance(test_mse, tuple) else 0.0, current_lr)
@@ -724,7 +755,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
         
         # Print streaming summary and cleanup resources
         if is_streaming:
-            final_status = train_loader.get_status()
+            final_status = train_loader.get_status()  # type: ignore
             # Handle different streaming implementations
             final_sequences_count = final_status.get('total_sequences', final_status.get('current_sequences', 0))
             print(f"\n📊 Streaming Summary:")
@@ -736,8 +767,8 @@ class Exp_Stock_Forecasting(Exp_Basic):
             
             # Cleanup streaming resources to prevent interference with validation/testing
             print(f"🧹 Cleaning up streaming resources...")
-            if hasattr(train_loader, 'streaming_dataset'):
-                train_loader.streaming_dataset.cleanup()
+            if hasattr(train_loader, 'streaming_dataset') and hasattr(getattr(train_loader, 'streaming_dataset', None), 'cleanup'):
+                train_loader.streaming_dataset.cleanup()  # type: ignore
             print(f"✅ Streaming cleanup completed")
 
         # Plot training metrics (epoch-level)
@@ -763,12 +794,28 @@ class Exp_Stock_Forecasting(Exp_Basic):
         # Load the best model saved by early stopping
         best_model_path = os.path.join(path, 'checkpoint.pth')
         if os.path.exists(best_model_path):
-             print(f"Loading best model from: {best_model_path}")
-             self.model.load_state_dict(torch.load(best_model_path, map_location=self.device))
-             self.logger.logger.info(f"Loaded best model from: {best_model_path}")
+            print(f"Loading best model from: {best_model_path}")
+            try:
+                checkpoint = torch.load(best_model_path, map_location=self.device)
+                
+                # Handle different checkpoint formats
+                if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                    # Training checkpoint with metadata
+                    self.model.load_state_dict(checkpoint['model_state_dict'])
+                    print(f"Loaded best model from training checkpoint: {best_model_path}")
+                else:
+                    # Early stopping checkpoint (model state dict only)
+                    self.model.load_state_dict(checkpoint)
+                    print(f"Loaded best model from early stopping checkpoint: {best_model_path}")
+                    
+                self.logger.logger.info(f"Loaded best model from: {best_model_path}")
+            except Exception as e:
+                print(f"Error loading best model checkpoint from {best_model_path}: {e}")
+                print("Warning: Using current model state.")
+                self.logger.logger.info(f"Error loading best model: {e}. Using current model state.")
         else:
-             print("Warning: Best model checkpoint not found. Returning current model state.")
-             self.logger.logger.info("Warning: Best model checkpoint not found. Using current model state.")
+            print("Warning: Best model checkpoint not found. Returning current model state.")
+            self.logger.logger.info("Warning: Best model checkpoint not found. Using current model state.")
 
         # Log training completion
         self.logger.logger.info(f"=== Training Completed ===")
@@ -821,8 +868,22 @@ class Exp_Stock_Forecasting(Exp_Basic):
             # Only try to load checkpoint if we found one
             if checkpoint_path is not None:
                 try:
-                    self.model.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
-                    print(f"Successfully loaded checkpoint from: {checkpoint_path}")
+                    checkpoint = torch.load(checkpoint_path, map_location=self.device)
+                    
+                    # Handle different checkpoint formats
+                    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                        # Checkpoint contains training metadata - extract model state dict
+                        self.model.load_state_dict(checkpoint['model_state_dict'])
+                        print(f"Successfully loaded model from training checkpoint: {checkpoint_path}")
+                        if 'epoch' in checkpoint:
+                            print(f"  Checkpoint from epoch: {checkpoint['epoch']}")
+                        if 'global_iter' in checkpoint:
+                            print(f"  Checkpoint from iteration: {checkpoint['global_iter']}")
+                    else:
+                        # Checkpoint is just model state dict (from early stopping)
+                        self.model.load_state_dict(checkpoint)
+                        print(f"Successfully loaded model state dict from: {checkpoint_path}")
+                        
                 except Exception as e:
                     print(f"Error loading checkpoint from {checkpoint_path}: {e}")
                     print("Continuing with current model state...")
@@ -892,10 +953,13 @@ class Exp_Stock_Forecasting(Exp_Basic):
 
         # Denormalize for plotting and metrics
         try:
-            trues = data.denormalize(trues)
-            preds = data.denormalize(preds)
-            # Also denormalize historical data for plotting
-            input_data = data.denormalize(input_data)
+            if data is not None and hasattr(data, 'denormalize') and callable(getattr(data, 'denormalize', None)):
+                trues = data.denormalize(trues)  # type: ignore
+                preds = data.denormalize(preds)  # type: ignore
+                # Also denormalize historical data for plotting
+                input_data = data.denormalize(input_data)  # type: ignore
+            else:
+                print("[INFO] Denormalization not available - proceeding with normalized data")
         except Exception as e:
             print(f"[ERROR] Denormalization failed: {e}")
             print("[WARN] Proceeding with normalized data for metrics and plots.")
@@ -969,8 +1033,9 @@ class Exp_Stock_Forecasting(Exp_Basic):
                         
                         # FIXED: Dynamically determine close price feature index
                         # Prefer dataset feature ordering (handles default feature list)
-                        if hasattr(data, 'features') and 'close' in data.features:
-                            close_feature_idx = data.features.index('close')
+                        if (data is not None and hasattr(data, 'features') and 
+                            data.features is not None and 'close' in data.features):
+                            close_feature_idx = data.features.index('close')  # type: ignore
                         else:
                             # Fall back to args.features or first feature
                             if getattr(self.args, 'features', None) and 'close' in self.args.features:
