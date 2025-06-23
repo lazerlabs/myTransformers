@@ -327,7 +327,7 @@ class StockVisualizer:
             historical_marks (np.ndarray): Historical timestamps. Shape: [total_sequences, seq_len, time_features]
             true_values (np.ndarray): Ground truth future values. Shape: [total_sequences, pred_len, features]
             predictions (np.ndarray): Predicted future values. Shape: [total_sequences, pred_len, features]
-            dataset (StockDataset): The dataset instance (used for denormalization).
+            dataset (SimpleStockDataset): The dataset instance (used for denormalization).
             feature_idx (int): Index of the feature to plot (e.g., 1 for 'close').
             n_samples_to_plot (int): Default number of sample sequences to plot.
             return_fig (bool): Whether to return the figure object.
@@ -796,7 +796,7 @@ class StockVisualizer:
             ax.set_xticks(range(0, seq_len + pred_len, 10))
             ax.set_xticklabels([f'T{i}' for i in range(0, seq_len + pred_len, 10)])
 
-    def plot_simple_validation_predictions(self, model, dataset, device, feature_idx=0, n_samples_to_plot=3, config=None):
+    def plot_simple_validation_predictions(self, model, dataset, device, feature_idx=0, n_samples_to_plot=3, config=None, context_prefix=""):
         """
         Simple validation visualization:
         1. Take raw validation sequences (seq_len + pred_len consecutive points)
@@ -931,20 +931,66 @@ class StockVisualizer:
                     historical_data_filtered = historical_data[-60:]  # Show last 60 points
                     print(f"DEBUG - All historical data is zero, showing last 60 points")
                 
-                # Only denormalize the model predictions
+                # ALL DATA NEEDS TO BE CONVERTED TO PRICES FOR VISUALIZATION
+                # The dataset contains returns, but we want to plot prices
+                
+                # 1. Denormalize model predictions (returns → prices)
                 pred_normalized = model_output[0, :, feature_idx].cpu().numpy()  # [pred_len]
                 
-                # Denormalize predictions using dataset's method
-                # Create a dummy array with the right shape for denormalization
+                # Create dummy array for denormalization
                 dummy_pred = np.zeros((1, len(pred_normalized), len(self.feature_names)))
                 dummy_pred[0, :, feature_idx] = pred_normalized
                 
                 try:
-                    denorm_pred_full = dataset.denormalize(dummy_pred)
+                    denorm_pred_full = dataset.denormalize(dummy_pred, [0])  # Use sequence index 0
                     predicted_future = denorm_pred_full[0, :, feature_idx]
                 except Exception as e:
                     print(f"Warning: Failed to denormalize predictions: {e}. Using raw predictions.")
                     predicted_future = pred_normalized
+                
+                # 2. Convert historical returns to prices
+                # We need to get the first price from the dataset to reconstruct the price series
+                try:
+                    if hasattr(dataset, 'first_values') and seq_idx < len(dataset.first_values):
+                        first_price = dataset.first_values[seq_idx][feature_idx]
+                        # Convert returns to prices: P_t = P_0 * ∏(1 + r_i)
+                        historical_prices = [first_price]
+                        for return_val in historical_data_filtered:
+                            next_price = historical_prices[-1] * (1 + return_val)
+                            historical_prices.append(next_price)
+                        historical_data_filtered = np.array(historical_prices[:-1])  # Remove last element (we added one extra)
+                    else:
+                        print(f"Warning: Cannot convert historical returns to prices - no first_values available")
+                        # Keep as returns for now
+                        pass
+                except Exception as e:
+                    print(f"Warning: Failed to convert historical returns to prices: {e}")
+                    # Keep as returns for now
+                    pass
+                
+                # 3. Convert true future returns to prices  
+                # Continue from the last historical price
+                try:
+                    if hasattr(dataset, 'first_values') and seq_idx < len(dataset.first_values):
+                        if len(historical_data_filtered) > 0:
+                            last_historical_price = historical_data_filtered[-1]
+                        else:
+                            last_historical_price = dataset.first_values[seq_idx][feature_idx]
+                        
+                        # Convert true future returns to prices
+                        true_future_prices = [last_historical_price]
+                        for return_val in true_future:
+                            next_price = true_future_prices[-1] * (1 + return_val)
+                            true_future_prices.append(next_price)
+                        true_future = np.array(true_future_prices[1:])  # Remove first element (starting price)
+                    else:
+                        print(f"Warning: Cannot convert true future returns to prices - no first_values available")
+                        # Keep as returns for now
+                        pass
+                except Exception as e:
+                    print(f"Warning: Failed to convert true future returns to prices: {e}")
+                    # Keep as returns for now
+                    pass
                 
                 # Create x-axis - adjust for filtered historical data
                 seq_len_filtered = len(historical_data_filtered)
@@ -1060,8 +1106,9 @@ class StockVisualizer:
         fig.suptitle(f'Stock Validation Predictions: {self.feature_names[feature_idx].title()} Price Forecasting{mode_text}', 
                     fontsize=16, fontweight='bold')
         
-        # Save plot
-        plot_filename = f'simple_predictions_{self.feature_names[feature_idx]}_{dataset_mode}.png'
+        # Save plot with context prefix
+        prefix = f"{context_prefix}_" if context_prefix else ""
+        plot_filename = f'{prefix}simple_predictions_{self.feature_names[feature_idx]}_{dataset_mode}.png'
         plot_path = os.path.join(self.save_dir, plot_filename)
         plt.savefig(plot_path, dpi=300, bbox_inches='tight', facecolor='white')
         print(f"Saved plot: {plot_path}")
@@ -1070,7 +1117,7 @@ class StockVisualizer:
         if plot_data_records:
             import pandas as pd
             df = pd.DataFrame(plot_data_records)
-            csv_filename = f'simple_predictions_{self.feature_names[feature_idx]}_{dataset_mode}.csv'
+            csv_filename = f'{prefix}simple_predictions_{self.feature_names[feature_idx]}_{dataset_mode}.csv'
             csv_path = os.path.join(self.save_dir, csv_filename)
             df.to_csv(csv_path, index=False)
             print(f"Saved CSV: {csv_path}")

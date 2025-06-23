@@ -104,7 +104,7 @@ def open_tensorboard_browser(port=6006, delay=3):
 # Data Parameters
 @click.option('--data-dir', multiple=True, type=str, default=[_config_defaults['data_dir']], show_default=True, help='Directory(ies) containing data files (can be used multiple times)')
 @click.option('--stocks', type=str, default=None, help='Comma-separated list of stock tickers (e.g. AAPL,MSFT) - defaults to all stocks if not specified')
-@click.option('--features', type=str, default=','.join(_config_defaults['features']), show_default=True, help='Comma-separated list of features (e.g. volume,close,transactions)')
+@click.option('--features', type=str, default=','.join(_config_defaults['features']), show_default=True, help='Comma-separated list of features (now simplified to close only)')
 @click.option('--train-size', type=int, default=_config_defaults['train_size'], show_default=True, help='Number of files to use for training')
 @click.option('--test-size', type=int, default=_config_defaults['test_size'], show_default=True, help='Number of files to use for testing')
 @click.option('--val-size', type=int, default=_config_defaults['val_size'], show_default=True, help='Number of files to use for validation')
@@ -114,7 +114,6 @@ def open_tensorboard_browser(port=6006, delay=3):
 @click.option('--seq-len', type=int, default=_config_defaults['seq_len'], show_default=True, help='Input sequence length')
 @click.option('--pred-len', type=int, default=_config_defaults['pred_len'], show_default=True, help='Prediction sequence length')
 @click.option('--label-len', type=int, default=_config_defaults['label_len'], show_default=True, help='Label length for teacher forcing')
-@click.option('--scale/--no-scale', default=_config_defaults['scale'], help='Whether to scale the data')
 
 # Dataset Mode Parameters
 @click.option('--mode', type=click.Choice(['sliding_window', 'full_day']), default=_config_defaults['mode'], show_default=True, help='Dataset mode: sliding_window or full_day')
@@ -125,12 +124,12 @@ def open_tensorboard_browser(port=6006, delay=3):
 @click.option(
     '--model',
     type=click.Choice([
-        'iTransformer', 'iInformer', 'iReformer', 'iFlowformer', 'iFlashformer',
+        'iTransformer', 'DirectReturnsTransformer', 'iInformer', 'iReformer', 'iFlowformer', 'iFlashformer',
         'Transformer', 'Informer', 'Reformer', 'Flowformer', 'Flashformer'
     ]),
     default=_config_defaults['model'],
     show_default=True,
-    help='Model name (choose from iTransformer, iInformer, iReformer, iFlowformer, iFlashformer, Transformer, Informer, Reformer, Flowformer, Flashformer)'
+    help='Model name (choose from iTransformer, DirectReturnsTransformer, iInformer, iReformer, iFlowformer, iFlashformer, Transformer, Informer, Reformer, Flowformer, Flashformer)'
 )
 @click.option('--d-model', type=int, default=_config_defaults['d_model'], show_default=True, help='Model dimension')
 @click.option('--n-heads', type=int, default=_config_defaults['n_heads'], show_default=True, help='Number of attention heads')
@@ -181,7 +180,7 @@ def open_tensorboard_browser(port=6006, delay=3):
 
 # Model Specific Parameters
 @click.option('--factor', type=int, default=_config_defaults['factor'], show_default=True, help='Probsparse attention factor')
-@click.option('--enc-in', type=int, default=_config_defaults['enc_in'], show_default=True, help='Number of input features')
+@click.option('--enc-in', type=int, default=_config_defaults['enc_in'], show_default=True, help='Number of input features (simplified to 1 for close price only)')
 @click.option('--freq', type=str, default=_config_defaults['freq'], show_default=True, help='Time feature encoding frequency')
 
 # Test Parameters

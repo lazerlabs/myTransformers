@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from file_utils import find_csv_files
-from stock_dataset import StockDataset
+from simple_stock_dataset import SimpleStockDataset
 import pandas as pd
 import warnings
 from tqdm import tqdm
@@ -110,10 +110,7 @@ class InterleaveStreamingStockDataset(Dataset):
                  tickers: Optional[List[str]] = None,
                  seq_len: int = 60,
                  pred_len: int = 30,
-                 scale: bool = True,
                  features: Optional[List[str]] = None,
-                 global_mean: Optional[np.ndarray] = None,
-                 global_std: Optional[np.ndarray] = None,
                  mode: str = 'full_day',
                  interpolate_max_missing: int = 3,
                  chunk_size: int = 3):
@@ -122,10 +119,7 @@ class InterleaveStreamingStockDataset(Dataset):
         self.tickers = tickers
         self.seq_len = seq_len
         self.pred_len = pred_len
-        self.scale = scale
         self.features = features
-        self.global_mean = global_mean
-        self.global_std = global_std
         self.mode = mode
         self.interpolate_max_missing = interpolate_max_missing
         self.chunk_size = chunk_size
@@ -165,15 +159,12 @@ class InterleaveStreamingStockDataset(Dataset):
         
         try:
             # Create dataset for this chunk
-            chunk_dataset = StockDataset(
+            chunk_dataset = SimpleStockDataset(
                 file_paths=chunk_files,
                 tickers=self.tickers,
                 seq_len=self.seq_len,
                 pred_len=self.pred_len,
-                scale=self.scale,
                 features=self.features,
-                global_mean=self.global_mean,
-                global_std=self.global_std,
                 mode=self.mode,
                 interpolate_max_missing=self.interpolate_max_missing
             )
@@ -361,11 +352,8 @@ def create_interleave_streaming_dataloader(
     batch_size: int = 32,
     seq_len: int = 60,
     pred_len: int = 30,
-    scale: bool = True,
     tickers: Optional[List[str]] = None,
     features: Optional[List[str]] = None,
-    global_mean: Optional[np.ndarray] = None,
-    global_std: Optional[np.ndarray] = None,
     shuffle: bool = True,
     mode: str = 'full_day',
     interpolate_max_missing: int = 3,
@@ -389,10 +377,7 @@ def create_interleave_streaming_dataloader(
         tickers=tickers,
         seq_len=seq_len,
         pred_len=pred_len,
-        scale=scale,
         features=features,
-        global_mean=global_mean,
-        global_std=global_std,
         mode=mode,
         interpolate_max_missing=interpolate_max_missing,
         chunk_size=chunk_size

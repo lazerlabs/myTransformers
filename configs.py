@@ -35,7 +35,7 @@ class StockPredictionConfig:
     data_dir: Union[str, List[str]] = "dataset"  # Use local dataset directory
     stocks: Optional[List[str]] = None  # If None, will use all stocks in CSV
     features: List[str] = field(
-        default_factory=lambda: ['close', 'volume', 'transactions']
+        default_factory=lambda: ['close']  # SIMPLIFIED: Only use close price for prediction
     )
     target: str = 'close'  # Primary target feature for prediction and visualization
     train_size: Optional[int] = 1  # Number of files to use for training (None means use all remaining files)
@@ -49,7 +49,6 @@ class StockPredictionConfig:
     seq_len: int = 60      # 1 hour lookback
     pred_len: int = 15     # Predict next 15 minutes
     label_len: int = 30    # Label length for teacher forcing
-    scale: bool = True
     inverse: bool = True   # Whether to denormalize predictions for metrics and visualization
     
     # Dataset Mode Parameters
@@ -58,7 +57,7 @@ class StockPredictionConfig:
     max_seq_len: int = 2000  # Maximum sequence length for embedding layer (for full_day mode)
     
     # Model Parameters
-    model: str = 'iTransformer'
+    model: str = 'iTransformer'  # Choose from iTransformer, DirectReturnsTransformer, iInformer, etc.
     d_model: int = 512     # Dimension of model
     n_heads: int = 8       # Number of attention heads
     e_layers: int = 4      # Increased number of encoder layers
@@ -85,10 +84,9 @@ class StockPredictionConfig:
     save_checkpoint_every_n_epochs: Optional[int] = None      # Save checkpoint every N epochs (None to disable)
     
     # Loss Function Parameters
-    loss_type: str = "adaptive"    # Use our new adaptive loss
+    loss_type: str = "mae"    # Use MAE instead of adaptive - doesn't overstate small changes
     loss_kwargs: dict = field(default_factory=lambda: {
-        "alpha": 0.3,              # Weight for relative error component
-        "beta": 2.0                # Exponential scaling for MSE
+        # No additional kwargs needed for basic MAE
     })
     
     # Learning Rate Scheduler Parameters
@@ -112,12 +110,12 @@ class StockPredictionConfig:
     
     # Model Specific
     factor: int = 5  # probsparse attn factor
-    enc_in: int = 3  # number of input features (Volume, Close, Transactions)
-    dec_in: int = 3  # decoder input size (same as enc_in for iTransformer)
-    c_out: int = 3   # output size (same as enc_in for iTransformer)
+    enc_in: int = 1  # SIMPLIFIED: Only one input feature (close price)
+    dec_in: int = 1  # decoder input size (same as enc_in for iTransformer)
+    c_out: int = 1   # SIMPLIFIED: Only one output feature (close price)
     freq: str = 'min'  # time feature encoding frequency
-    forecasting_features: str = 'M'  # forecasting task: 'M'=multivariate predict multivariate, 'S'=univariate predict univariate, 'MS'=multivariate predict univariate
-    class_strategy: str = 'projection'  # classification strategy (not used in regression, but needed for compatibility) 
+    forecasting_features: str = 'S'  # SIMPLIFIED: 'S'=univariate predict univariate (was 'M'=multivariate)
+    class_strategy: str = 'projection'  # classification strategy (not used in regression, but needed for compatibility)
     
     # Runtime storage for file paths
     available_files: List[str] = field(default_factory=list)

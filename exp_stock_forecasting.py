@@ -2,7 +2,7 @@
 Unified Experiment Runner for Stock Market iTransformer Research
 
 - Supports dynamic selection of any model from iTransformer/model/ (iTransformer, iInformer, iReformer, iFlowformer, iFlashformer, Transformer, Informer, Reformer, Flowformer, Flashformer).
-- Uses StockDataset as the unified data loader for OHLCV stock data.
+- Uses SimpleStockDataset with returns-based preprocessing for OHLCV stock data.
 - Results, metrics, and logs are saved with model-specific naming for direct comparison.
 - Feature selection (e.g., 'close' only vs. multi-feature) is controlled via CLI/config.
 - Strictly supports the "inverted" transformer paradigm for time series forecasting.
@@ -24,7 +24,7 @@ from torch import optim
 from tqdm import tqdm
 
 from exp_basic import Exp_Basic
-from stock_dataset import StockDataset, create_dataloader
+from simple_stock_dataset import SimpleStockDataset, create_simple_dataloader
 from utils.metrics import metric
 from utils.visualization import StockVisualizer
 from utils.loss import get_loss_function
@@ -63,7 +63,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
 
         # List of inverted models (safe for main experiments)
         inverted_models = {
-            'iTransformer', 'iInformer', 'iReformer', 'iFlowformer', 'iFlashformer'
+            'iTransformer', 'DirectReturnsTransformer', 'iInformer', 'iReformer', 'iFlowformer', 'iFlashformer'
         }
         # All available models
         model_module_map = {
@@ -99,6 +99,13 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 print(f"Using local stock-optimized {model_name} model")
             except Exception as e:
                 print(f"Warning: Could not import local {model_name} model: {e}")
+        elif model_name == "DirectReturnsTransformer":
+            try:
+                from models.DirectReturnsTransformer import Model as DirectReturnsTransformerModel
+                model_class = DirectReturnsTransformerModel
+                print(f"Using DirectReturnsTransformer - returns as direct embeddings approach")
+            except Exception as e:
+                print(f"Warning: Could not import DirectReturnsTransformer model: {e}")
 
         # Fallback to original iTransformer models if local not found
         if model_class is None and model_name in model_module_map:
@@ -221,24 +228,20 @@ class Exp_Stock_Forecasting(Exp_Basic):
              data_path_list = self.args.test_files # Use test_files from config
              tickers = self.args.stocks # Use configured stocks for testing (or None)
 
-        # Determine if scaling should be used (only if enabled AND stats are valid)
-        scale_data = self.args.scale and self.global_mean is not None and self.global_std is not None
+        # Note: With returns-based preprocessing, we no longer need scaling
 
         # Ensure data_path_list is not empty
         if not data_path_list:
              print(f"Warning: No data files found for flag '{flag}'. Returning None for dataset and dataloader.")
              return None, None
 
-        data_set, data_loader = create_dataloader(
+        data_set, data_loader = create_simple_dataloader(
             file_paths=data_path_list, # Pass the list of paths
             batch_size=self.args.batch_size,
             seq_len=self.args.seq_len,
             pred_len=self.args.pred_len,
-            scale=scale_data, # Use determined scale flag
             tickers=tickers,
             features=self.args.features, # Pass features
-            global_mean=self.global_mean, # Pass stored global stats
-            global_std=self.global_std,   # Pass stored global stats
             shuffle=shuffle, # Pass shuffle flag
             mode=self.args.mode,
             interpolate_max_missing=self.args.interpolate_max_missing,
@@ -266,8 +269,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
              data_path_list = self.args.test_files
              tickers = self.args.stocks
 
-        # Determine if scaling should be used
-        scale_data = self.args.scale and self.global_mean is not None and self.global_std is not None
+        # Note: We always use returns-based preprocessing now (no scaling needed)
 
         # Ensure data_path_list is not empty
         if not data_path_list:
@@ -301,11 +303,8 @@ class Exp_Stock_Forecasting(Exp_Basic):
             batch_size=self.args.batch_size,
             seq_len=self.args.seq_len,
             pred_len=self.args.pred_len,
-            scale=scale_data,
             tickers=tickers,
             features=self.args.features,
-            global_mean=self.global_mean,
-            global_std=self.global_std,
             shuffle=shuffle,
             mode=self.args.mode,
             interpolate_max_missing=self.args.interpolate_max_missing,
@@ -539,8 +538,22 @@ class Exp_Stock_Forecasting(Exp_Basic):
                     warnings.warn(f"Skipping iteration {i} due to None batch data.")
                     continue
                 try:
-                    batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask = batch_data
-                except ValueError as e:
+                    # Handle different batch data formats for streaming vs regular dataloaders
+                    if is_streaming:
+                        # For streaming, batch_data is the actual batch tuple
+                        if len(batch_data) == 5:
+                            batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask = batch_data
+                        else:
+                            warnings.warn(f"Skipping iteration {i} due to unexpected batch format")
+                            continue
+                    else:
+                        # For regular dataloader, we already unpacked (i, batch_data) above
+                        if len(batch_data) == 5:
+                            batch_x, batch_x_mark, batch_y, batch_y_mark, attention_mask = batch_data
+                        else:
+                            warnings.warn(f"Skipping iteration {i} due to unexpected batch format")
+                            continue
+                except (ValueError, TypeError) as e:
                     warnings.warn(f"Skipping iteration {i} due to error unpacking batch data: {e}")
                     continue
 
@@ -579,6 +592,8 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 # Extract final predictions and handle feature dimensions
                 # For both inverted and classic models, extract the last pred_len steps
                 # outputs should be [B, pred_len, features] or [B, features, pred_len]
+                # f_dim: For 'MS' (multivariate input, univariate output), only use last feature (-1)
+                # For 'S' (univariate) or 'M' (multivariate), use all features (0:)
                 f_dim = -1 if self.args.forecasting_features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
@@ -709,7 +724,7 @@ class Exp_Stock_Forecasting(Exp_Basic):
             current_lr = model_optim.param_groups[0]['lr']
             learning_rates.append(current_lr)
             if self.args.lr_scheduler == 'cosine':
-                scheduler.step()  # CosineAnnealingLR doesn't need metrics
+                scheduler.step()  # type: ignore  # CosineAnnealingLR doesn't need metrics
             else:
                 scheduler.step(val_loss)  # ReduceLROnPlateau needs the validation loss
 
@@ -780,6 +795,10 @@ class Exp_Stock_Forecasting(Exp_Basic):
         }
         
         try:
+            # Update visualizer save_dir to use the timestamped directory
+            original_save_dir = self.visualizer.save_dir
+            self.visualizer.save_dir = self.args.figures_dir
+            
             self.visualizer.plot_training_metrics(metrics)
             self.visualizer.plot_learning_rate(learning_rates)
             
@@ -787,6 +806,9 @@ class Exp_Stock_Forecasting(Exp_Basic):
             if save_iteration_metrics and len(iteration_metrics['iteration']) > 0:
                 print(f"Plotting iteration-level metrics ({len(iteration_metrics['iteration'])} points)...")
                 self.visualizer.plot_iteration_metrics(iteration_metrics)
+                
+            # Restore original save_dir
+            self.visualizer.save_dir = original_save_dir
                 
         except Exception as e:
             print(f"Warning: Failed to plot metrics - {e}")
@@ -951,24 +973,76 @@ class Exp_Stock_Forecasting(Exp_Basic):
         print(f"Input data shape: {input_data.shape}")
         print(f"Input marks shape: {input_marks.shape}")
 
-        # Denormalize for plotting and metrics
+        # FIXED Denormalize for plotting and metrics
         try:
             if data is not None and hasattr(data, 'denormalize') and callable(getattr(data, 'denormalize', None)):
-                trues = data.denormalize(trues)  # type: ignore
-                preds = data.denormalize(preds)  # type: ignore
-                # Also denormalize historical data for plotting
-                input_data = data.denormalize(input_data)  # type: ignore
+                print("🔧 Using returns denormalization...")
+                # SimpleStockDataset always uses returns, so always use returns denormalization
+                batch_size = preds.shape[0]
+                sequence_indices = list(range(batch_size))
+                
+                trues = data.denormalize(trues, sequence_indices)  # type: ignore
+                preds = data.denormalize(preds, sequence_indices)  # type: ignore
+                input_data = data.denormalize(input_data, sequence_indices)  # type: ignore
+                print("✅ Successfully applied returns denormalization")
             else:
-                print("[INFO] Denormalization not available - proceeding with normalized data")
+                print("[INFO] Denormalization not available - proceeding with returns data")
+                
+            # Verify the fix worked by checking value ranges
+            print(f"📊 Denormalization verification:")
+            print(f"   Predictions - min: {preds.min():.6f}, max: {preds.max():.6f}")
+            print(f"   Ground truth - min: {trues.min():.6f}, max: {trues.max():.6f}")
+            print(f"   Historical - min: {input_data.min():.6f}, max: {input_data.max():.6f}")
+            
+            # Check if denormalization worked (values should be > 0.01 for prices)
+            all_values = np.concatenate([preds.flatten(), trues.flatten(), input_data.flatten()])
+            if np.abs(all_values).min() > 0.01:
+                print("✅ Returns denormalization successful - all values in price range")
+            else:
+                print("⚠️ Some values still appear to be in returns format")
+                
         except Exception as e:
-            print(f"[ERROR] Denormalization failed: {e}")
+            print(f"[ERROR] Fixed denormalization failed: {e}")
             print("[WARN] Proceeding with normalized data for metrics and plots.")
 
-        # Calculate and print metrics
+        # STEP 1: Calculate loss on RAW returns data (same scale as training)
         from utils.metrics import metric
-        mae, mse, rmse, mape, mspe = metric(preds, trues)
-        print(f'MSE: {mse:.4f}, MAE: {mae:.4f}, RMSE: {rmse:.4f}, MAPE: {mape:.4f}, MSPE: {mspe:.4f}')
+        mae_raw, mse_raw, rmse_raw, mape_raw, mspe_raw = metric(preds, trues)
+        print(f'Raw Loss (validation scale): MSE: {mse_raw:.6f}, MAE: {mae_raw:.6f}')
         
+        # Store raw loss for validation return
+        validation_loss = mse_raw
+        
+        # STEP 2: Denormalize for visualization only
+        try:
+            if data is not None and hasattr(data, 'denormalize'):
+                # SimpleStockDataset always uses returns
+                batch_size = preds.shape[0]
+                sequence_indices = list(range(batch_size))
+                
+                trues_denorm = data.denormalize(trues, sequence_indices)  # type: ignore
+                preds_denorm = data.denormalize(preds, sequence_indices)  # type: ignore
+                input_data_denorm = data.denormalize(input_data, sequence_indices)  # type: ignore
+                
+                # Calculate denormalized metrics for logging
+                mae_denorm, mse_denorm, rmse_denorm, mape_denorm, mspe_denorm = metric(preds_denorm, trues_denorm)
+                print(f'Denormalized Metrics: MSE: {mse_denorm:.4f}, MAE: {mae_denorm:.4f}')
+                
+                # Use denormalized data for the rest of the function
+                trues = trues_denorm
+                preds = preds_denorm
+                input_data = input_data_denorm
+                mae, mse, rmse, mape, mspe = mae_denorm, mse_denorm, rmse_denorm, mape_denorm, mspe_denorm
+                
+            else:
+                # No denormalization available
+                mae, mse, rmse, mape, mspe = mae_raw, mse_raw, rmse_raw, mape_raw, mspe_raw
+                print("[INFO] Denormalization not available - using raw metrics")
+                
+        except Exception as e:
+            print(f"[ERROR] Denormalization failed: {e}")
+            mae, mse, rmse, mape, mspe = mae_raw, mse_raw, rmse_raw, mape_raw, mspe_raw
+
         # Log test metrics
         if test:
             self.logger.log_prediction(mae, mse, rmse, mape, mspe)
@@ -977,7 +1051,8 @@ class Exp_Stock_Forecasting(Exp_Basic):
             self.logger.logger.info(f"Predictions shape: {preds.shape}")
             self.logger.logger.info(f"Ground truth shape: {trues.shape}")
         else:
-            self.logger.logger.info(f"Validation - MSE: {mse:.6f}, MAE: {mae:.6f}")
+            self.logger.logger.info(f"Validation - Raw MSE: {mse_raw:.6f}, Raw MAE: {mae_raw:.6f}")
+            self.logger.logger.info(f"Validation - Denorm MSE: {mse:.6f}, Denorm MAE: {mae:.6f}")
 
         # Create visualizer instance using the pre-configured figures directory
         # This ensures figures go to the same timestamped directory as logs and checkpoints
@@ -991,14 +1066,17 @@ class Exp_Stock_Forecasting(Exp_Basic):
             target_feature_idx = 0
 
         # Use the new simple validation visualization approach
-        visualizer.plot_simple_validation_predictions(
-            model=self.model,
-            dataset=data,  # Pass the validation dataset
-            device=self.device,
-            feature_idx=target_feature_idx,
-            n_samples_to_plot=3,
-            config=self.args
-        )
+        # Only run simple validation visualization for final test, not during training validation
+        if test and epoch is None:
+            visualizer.plot_simple_validation_predictions(
+                model=self.model,
+                dataset=data,  # Pass the validation dataset
+                device=self.device,
+                feature_idx=target_feature_idx,
+                n_samples_to_plot=3,
+                config=self.args,
+                context_prefix="final_test"
+            )
 
         # Only perform saving/plotting/metric calculation for final test run
         if test:
@@ -1023,47 +1101,12 @@ class Exp_Stock_Forecasting(Exp_Basic):
             np.save(os.path.join(results_dir, 'true_denormalized.npy'), trues)
             np.save(os.path.join(results_dir, 'inputs_denormalized.npy'), input_data)
 
-            # **FIXED COMPREHENSIVE VISUALIZATION**: Use denormalized data and close price
-            if hasattr(self, 'visualizer'):
-                try:
-                    if len(input_data) > 0 and len(preds) > 0:
-                        vis_dir = os.path.join(results_dir, 'visualizations')
-                        if not os.path.exists(vis_dir):
-                            os.makedirs(vis_dir)
-                        
-                        # FIXED: Dynamically determine close price feature index
-                        # Prefer dataset feature ordering (handles default feature list)
-                        if (data is not None and hasattr(data, 'features') and 
-                            data.features is not None and 'close' in data.features):
-                            close_feature_idx = data.features.index('close')  # type: ignore
-                        else:
-                            # Fall back to args.features or first feature
-                            if getattr(self.args, 'features', None) and 'close' in self.args.features:
-                                close_feature_idx = self.args.features.index('close')
-                            else:
-                                close_feature_idx = 0  # default
-                        
-                        # Use DENORMALIZED data and close price
-                        fig = self.visualizer.plot_comprehensive_predictions(
-                            historical_data=input_data, 
-                            historical_marks=input_marks,
-                            true_values=trues, 
-                            predictions=preds, 
-                            dataset=data, 
-                            feature_idx=close_feature_idx,
-                            n_samples_to_plot=3,
-                            return_fig=True,
-                            config=self.args  # Pass config to enable dynamic stock plotting
-                        )
-                        if writer is not None and epoch is not None and fig is not None:
-                            writer.add_figure('Test/Predictions', fig, epoch)
-                except Exception as e:
-                    print(f"Warning: Failed during comprehensive visualization - {e}")
+            # Note: Comprehensive predictions removed as they duplicated simple predictions functionality
 
             return mse
 
         else: # If validation (test=0)
-            return mse # Return average validation loss for early stopping/LR scheduling
+            return validation_loss # Return RAW validation loss (same scale as training) for early stopping/LR scheduling
 
 class EarlyStopping:
     def __init__(self, patience=7, verbose=False, delta=0):

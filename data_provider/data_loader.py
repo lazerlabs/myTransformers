@@ -1,64 +1,64 @@
-from stock_dataset import StockDataset, create_dataloader, calculate_global_stats # Added calculate_global_stats import
+# Remove old StockDataset import since we deleted that file
+# from stock_dataset import StockDataset, create_dataloader, calculate_global_stats # Added calculate_global_stats import
 import numpy as np # Import numpy for stats handling
+# Import the new simplified dataset
+from simple_stock_dataset import SimpleStockDataset, create_simple_dataloader
 
 def create_data_loaders(config):
     """
-    Create train and test data loaders with global normalization based on the training set.
+    Create train and test data loaders using SimpleStockDataset with returns-based preprocessing.
+    No global statistics needed since returns are naturally normalized.
     """
-    # 1. Calculate global statistics from the training set
-    # Use all tickers from training files for stats calculation unless config specifies otherwise
-    train_tickers = config.stocks # Use configured stocks if provided, else None (all)
-    global_mean, global_std = calculate_global_stats(
-        file_paths=config.train_files,
-        features=config.features,
-        tickers=train_tickers
-    )
+    print("Creating data loaders with returns-based preprocessing...")
+    
+    # Use configured stocks if provided, else None (all)
+    train_tickers = config.stocks
+    test_tickers = config.stocks
 
-    # Handle case where stats could not be calculated
-    if global_mean is None or global_std is None:
-        print("Warning: Global stats calculation failed. Disabling scaling.")
-        scale_data = False
-    else:
-        scale_data = config.scale # Use scaling setting from config if stats are available
-
-    # 2. Create Training DataLoader
-    # Use all tickers for training unless specified in config
-    train_dataset, train_dataloader = create_dataloader(
+    # Create Training DataLoader
+    train_dataset, train_dataloader = create_simple_dataloader(
         file_paths=config.train_files,
         batch_size=config.batch_size,
         seq_len=config.seq_len,
         pred_len=config.pred_len,
-        scale=scale_data,
-        tickers=train_tickers, # Use same tickers as stats calculation
+        tickers=train_tickers,
         features=config.features,
-        global_mean=global_mean,
-        global_std=global_std,
-        shuffle=True, # Shuffle training data
+        shuffle=True,  # Shuffle training data
         mode=config.mode,
         interpolate_max_missing=config.interpolate_max_missing,
-        max_samples=getattr(config, 'max_train_samples', None)  # Add max_samples support
+        max_samples=getattr(config, 'max_train_samples', None)
     )
 
-    # 3. Create Test DataLoader
-    # Typically evaluate on all tickers present in test files, unless config specifies otherwise
-    test_tickers = config.stocks # Or potentially None if you want all tickers in test files
-    test_dataset, test_dataloader = create_dataloader(
+    # Create Test DataLoader
+    test_dataset, test_dataloader = create_simple_dataloader(
         file_paths=config.test_files,
         batch_size=config.batch_size,
         seq_len=config.seq_len,
         pred_len=config.pred_len,
-        scale=scale_data,
         tickers=test_tickers,
         features=config.features,
-        global_mean=global_mean,
-        global_std=global_std,
-        shuffle=False, # Do not shuffle test data
+        shuffle=False,  # Do not shuffle test data
         mode=config.mode,
         interpolate_max_missing=config.interpolate_max_missing,
-        max_samples=getattr(config, 'max_test_samples', None)   # Add max_samples support
+        max_samples=getattr(config, 'max_test_samples', None)
     )
 
-    # TODO: Consider adding a validation dataloader here using config.val_files
+    # Create Validation DataLoader if validation files are specified
+    val_dataset, val_dataloader = None, None
+    if hasattr(config, 'val_files') and config.val_files:
+        val_tickers = getattr(config, 'val_stocks', config.stocks)
+        val_dataset, val_dataloader = create_simple_dataloader(
+            file_paths=config.val_files,
+            batch_size=config.batch_size,
+            seq_len=config.seq_len,
+            pred_len=config.pred_len,
+            tickers=val_tickers,
+            features=config.features,
+            shuffle=False,  # Do not shuffle validation data
+            mode=config.mode,
+            interpolate_max_missing=config.interpolate_max_missing,
+            max_samples=getattr(config, 'max_val_samples', None)
+        )
 
-    # Return datasets, dataloaders, and the calculated global stats
-    return train_dataset, train_dataloader, test_dataset, test_dataloader, global_mean, global_std
+    # Return datasets and dataloaders (no global stats needed)
+    return train_dataset, train_dataloader, test_dataset, test_dataloader, val_dataset, val_dataloader
