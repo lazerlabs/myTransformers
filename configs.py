@@ -143,6 +143,11 @@ class StockPredictionConfig:
     # File Order Parameters
     randomize_train_files: bool = True  # Randomize training file order to prevent learning day-to-day connections
     
+    # Memory Management Parameters
+    max_iteration_metrics: int = 10000  # Maximum number of iteration metrics to store (prevents memory leaks)
+    cleanup_frequency: int = 100        # Frequency of memory cleanup in training loop (every N iterations)
+    max_cache_size: int = 5             # Maximum number of datasets to cache
+    
     def __post_init__(self):
         # Update model parameters based on number of features
         self._update_model_dimensions()

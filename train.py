@@ -199,6 +199,11 @@ def open_tensorboard_browser(port=6006, delay=3):
 # File Order Parameters
 @click.option('--randomize-train-files/--no-randomize-train-files', default=_config_defaults['randomize_train_files'], help='Randomize training file order to prevent learning day-to-day connections')
 
+# Memory Management Parameters
+@click.option('--max-iteration-metrics', type=int, default=10000, show_default=True, help='Maximum number of iteration metrics to store (prevents memory leaks)')
+@click.option('--cleanup-frequency', type=int, default=100, show_default=True, help='Frequency of memory cleanup in training loop (every N iterations)')
+@click.option('--max-cache-size', type=int, default=5, show_default=True, help='Maximum number of datasets to cache')
+
 # TensorBoard Parameters - CLI-only options with their own defaults
 @click.option('--auto-start-tensorboard/--no-auto-start-tensorboard', default=True, help='Automatically start TensorBoard server')
 @click.option('--tensorboard-host', type=str, default='0.0.0.0', show_default=True, help='Host for TensorBoard server')
@@ -242,6 +247,9 @@ def main(**kwargs):
         # Set checkpoint saving to happen more frequently for quick tests
         config.save_checkpoint_every_n_iterations = 5  # Save every 5 iterations
         config.val_size = 1  # Ensure we have validation data
+        # Set memory management for quick tests
+        config.max_iteration_metrics = 1000
+        config.cleanup_frequency = 10
     
     # Override config with provided CLI arguments (CLI now has config defaults, so this is clean)
     for key, value in kwargs.items():

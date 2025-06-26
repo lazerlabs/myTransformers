@@ -16,6 +16,7 @@ import os
 import sys
 import time
 import warnings
+import gc  # Add garbage collection
 
 import numpy as np
 import torch
@@ -30,6 +31,22 @@ from utils.visualization import StockVisualizer
 from utils.loss import get_loss_function
 from utils.logger import Logger
 from configs import StockPredictionConfig
+
+# Simple memory monitoring functions
+def log_memory_stats(prefix: str = ""):
+    """Log current memory statistics."""
+    try:
+        import psutil
+        process = psutil.Process()
+        ram_gb = process.memory_info().rss / (1024**3)
+        
+        gpu_gb = 0.0
+        if torch.cuda.is_available():
+            gpu_gb = torch.cuda.memory_allocated() / (1024**3)
+            
+        print(f"🔍 {prefix}Memory: {ram_gb:.1f}GB RAM, {gpu_gb:.1f}GB GPU")
+    except ImportError:
+        print("🔍 psutil not available for memory monitoring")
 
 warnings.filterwarnings('ignore')
 
@@ -48,9 +65,14 @@ class Exp_Stock_Forecasting(Exp_Basic):
         self.global_mean = None
         self.global_std = None
         
-        # Cache for datasets to avoid reprocessing
+        # Cache for datasets to avoid reprocessing (with size limit)
         self._dataset_cache = {}
         self._dataloader_cache = {}
+        self.max_cache_size = 5  # Limit cache to prevent memory growth
+        
+        # Memory management configuration
+        self.max_iteration_metrics = getattr(args, 'max_iteration_metrics', 10000)  # Limit stored metrics
+        self.cleanup_frequency = getattr(args, 'cleanup_frequency', 100)  # Cleanup every N iterations
 
     def _build_model(self):
         """
@@ -248,10 +270,18 @@ class Exp_Stock_Forecasting(Exp_Basic):
             max_samples=max_samples
         )
         
-        # Cache the dataset (not the dataloader since shuffle varies)
+        # Cache the dataset (not the dataloader since shuffle varies) with size limit
         if data_set is not None:
+            # Implement LRU-style cache eviction to prevent memory growth
+            if len(self._dataset_cache) >= self.max_cache_size:
+                # Remove oldest cache entry
+                oldest_key = next(iter(self._dataset_cache))
+                print(f"Cache full, evicting oldest entry: {oldest_key}")
+                del self._dataset_cache[oldest_key]
+                gc.collect()  # Force garbage collection after cache eviction
+            
             self._dataset_cache[cache_key] = data_set
-            print(f"Cached dataset for {flag} split for future use")
+            print(f"Cached dataset for {flag} split for future use (cache size: {len(self._dataset_cache)}/{self.max_cache_size})")
         
         return data_set, data_loader
     
@@ -469,20 +499,26 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 min_lr=self.args.min_lr
             )
 
-        # Initialize metrics storage
+        # Initialize metrics storage with size limits
         train_losses = []
         val_losses = []
         learning_rates = []
         
-        # Iteration-level metrics storage
+        # Iteration-level metrics storage with circular buffer to prevent memory leaks
         iteration_metrics = {
             'iteration': [],
             'epoch': [],
             'train_loss': [],
             'learning_rate': [],
         }
+        
+        # Memory management tracking
+        last_cleanup_iter = 0
 
         print(f"\nStarting Training for {self.args.train_epochs} epochs...")
+        
+        # Log initial memory usage
+        log_memory_stats("Training start - ")
         
         # Log training start
         self.logger.logger.info(f"=== Training Started ===")
@@ -511,6 +547,11 @@ class Exp_Stock_Forecasting(Exp_Basic):
 
             self.model.train()
             epoch_time = time.time()
+            
+            # Clear cache before each epoch to prevent accumulation
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
             
             # For streaming dataloaders, we need to track dynamic total steps
             if is_streaming:
@@ -609,6 +650,16 @@ class Exp_Stock_Forecasting(Exp_Basic):
 
                 loss.backward()
                 model_optim.step()
+                
+                # Explicit cleanup to prevent tensor accumulation
+                del outputs, batch_x, batch_y, batch_x_mark, batch_y_mark, attention_mask, dec_inp
+                
+                # Periodic memory cleanup
+                if global_iter - last_cleanup_iter >= self.cleanup_frequency:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    gc.collect()
+                    last_cleanup_iter = global_iter
 
                 # Get current learning rate
                 current_lr = model_optim.param_groups[0]['lr']
@@ -619,8 +670,15 @@ class Exp_Stock_Forecasting(Exp_Basic):
                     writer.add_scalar('LearningRate', current_lr, global_iter)
                     writer.add_scalar('Loss/train_running_avg', running_avg_loss, global_iter)
 
-                # Store iteration-level metrics if enabled
+                # Store iteration-level metrics if enabled with circular buffer to prevent memory leaks
                 if save_iteration_metrics:
+                    # Implement circular buffer to limit memory usage
+                    if len(iteration_metrics['iteration']) >= self.max_iteration_metrics:
+                        # Remove oldest 10% of metrics to make room for new ones
+                        remove_count = self.max_iteration_metrics // 10
+                        for key in iteration_metrics:
+                            iteration_metrics[key] = iteration_metrics[key][remove_count:]
+                    
                     iteration_metrics['iteration'].append(global_iter)
                     iteration_metrics['epoch'].append(epoch + 1)
                     iteration_metrics['train_loss'].append(current_loss)
@@ -630,6 +688,9 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 if global_iter % log_every_n_iterations == 0:
                     elapsed_time = time.time() - epoch_time
                     iters_per_sec = iter_count / elapsed_time if elapsed_time > 0 else 0
+                    
+                    # Log memory stats periodically
+                    log_memory_stats(f"Epoch {epoch + 1}, Iter {global_iter} - ")
                     
                     # For streaming datasets, don't show confusing batch ratios; for regular datasets, use original calculation
                     if is_streaming:
@@ -704,6 +765,16 @@ class Exp_Stock_Forecasting(Exp_Basic):
             avg_epoch_train_loss = np.average(epoch_train_loss) if epoch_train_loss else 0.0
             
             train_losses.append(avg_epoch_train_loss)
+            
+            # Clear epoch-level losses to free memory
+            del epoch_train_loss
+            
+            # Limit size of historical losses to prevent memory growth
+            max_history = 1000  # Keep only last 1000 epochs
+            if len(train_losses) > max_history:
+                train_losses = train_losses[-max_history:]
+                val_losses = val_losses[-max_history:] if len(val_losses) > max_history else val_losses
+                learning_rates = learning_rates[-max_history:] if len(learning_rates) > max_history else learning_rates
 
             # Validation  
             print(f"\nRunning validation for epoch {epoch + 1}...")
@@ -763,10 +834,22 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 self.logger.logger.info(f"Epoch checkpoint saved: {epoch_checkpoint_path}")
 
             print(f"Epoch {epoch + 1} completed in {time.time() - epoch_time:.2f} seconds.")
+            
+            # End of epoch cleanup
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
 
 
         # --- End of Training ---
         print("\nTraining finished.")
+        
+        # Final memory cleanup and logging
+        log_memory_stats("Before final cleanup - ")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+        log_memory_stats("After final cleanup - ")
         
         # Print streaming summary and cleanup resources
         if is_streaming:
@@ -953,10 +1036,20 @@ class Exp_Stock_Forecasting(Exp_Basic):
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
                 
+                # Move to CPU and convert to numpy immediately to free GPU memory
                 preds.append(outputs.detach().cpu().numpy())
                 trues.append(batch_y.detach().cpu().numpy())
                 input_data.append(batch_x.detach().cpu().numpy())
                 input_marks.append(batch_x_mark.detach().cpu().numpy())
+                
+                # Explicit cleanup to free GPU tensors immediately
+                del outputs, batch_x, batch_y, batch_x_mark, batch_y_mark
+                
+                # Periodic cleanup during testing
+                if (i + 1) % 50 == 0:  # Cleanup every 50 batches
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    gc.collect()
 
         if not preds:
             print("No predictions were generated during testing. Cannot evaluate.")
